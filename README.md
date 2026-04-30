@@ -2,6 +2,12 @@
 
 TypeScript browser automation agent using raw Chrome DevTools Protocol plus an LLM decision loop, inspired by `browser-use`.
 
+## Quick AI Manual
+
+AI agents should read `AGENTS.md` first. `CLAUDE.md` is a symlink to the same file.
+
+That file is the canonical AI manual for contract ownership, architecture, and editing rules in this package.
+
 ## Quick Human Manual
 
 Use this package when you need browser automation that can inspect pages, choose actions, execute them through CDP, and expose the workflow through a CLI or MCP server.
@@ -27,12 +33,6 @@ Troubleshooting:
 - If MCP startup fails, check `src/mcp/server.ts` and the `browser-agent-mcp` bin entry.
 - If contract imports fail in another package, import shared types from `@jobseeker/browser-agent` instead of redefining them locally.
 - After code changes, run `bun run typecheck` before handing work off.
-
-## Quick AI Manual
-
-AI agents should read `AGENTS.md` first. `CLAUDE.md` is a symlink to the same file.
-
-That file is the canonical AI manual for contract ownership, architecture, and editing rules in this package.
 
 ## Development Notes
 
