@@ -1,6 +1,7 @@
 import type { Action } from "../actions/types";
 import type { LaunchOptions } from "../cdp/launch";
 import type { BrowserSession, Page } from "../browser/session";
+import type { z } from "zod";
 
 /**
  * Public contract types shared with browser-agent consumers.
@@ -75,10 +76,10 @@ export interface StepInfo {
 }
 
 /** Terminal summary returned by the browser-agent loop. */
-export interface AgentResult {
+export interface AgentResult<TData = unknown> {
   success: boolean;
   summary: string;
-  data: unknown;
+  data: TData | null;
   steps: number;
 }
 
@@ -86,9 +87,10 @@ export interface AgentResult {
  * Input contract for running the browser-agent loop against either owned or
  * caller-supplied browser/page handles.
  */
-export interface AgentOptions {
+export interface AgentOptions<TData = unknown> {
   task: string;
   decide: (input: DecisionInput) => Promise<Decision>;
+  outputSchema?: z.ZodType<TData>;
   maxSteps?: number;
   signal?: AbortSignal;
   launch?: LaunchOptions;

@@ -131,13 +131,7 @@ async function waitForDebuggerEndpoint(
         // ignore while browser boots
       }
 
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 120);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve(undefined);
-        });
-      });
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
   } finally {
     child.removeListener("exit", onExit);

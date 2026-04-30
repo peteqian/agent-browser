@@ -30,7 +30,8 @@
     "cli": "bun run bin/cli.ts",
     "mcp": "bun run bin/mcp.ts",
     "example:goto": "bun run examples/goto.ts",
-    "example:agent": "bun run examples/agent.ts"
+    "example:agent": "bun run examples/agent.ts",
+    "example:typed-output": "bun run examples/typed-output.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

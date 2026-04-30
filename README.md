@@ -19,6 +19,8 @@ Common commands:
 - `bun run mcp` runs the MCP server from `bin/mcp.ts`.
 - `bun run example:goto` runs the basic navigation example.
 - `bun run example:agent` runs the agent loop example.
+- `bun run example:typed-output` runs an agent example with zod-validated terminal data.
+- Add `--verbose` to `bun run cli -- ...` or `browser-agent ...` to print JSONL diagnostics, including raw model output, to stderr.
 
 Main entry points:
 
@@ -26,6 +28,25 @@ Main entry points:
 - `bin/cli.ts` command-line entry point.
 - `bin/mcp.ts` MCP server entry point.
 - `examples/` runnable usage examples.
+
+Typed terminal output:
+
+```ts
+import { z } from "zod";
+import { runAgent } from "@jobseeker/browser-agent";
+
+const Result = z.object({ heading: z.string() });
+
+const result = await runAgent({
+  task: "Report the page heading via done(data=...).",
+  outputSchema: Result,
+  // provide startUrl, launch, and decide...
+});
+
+if (result.data) {
+  result.data.heading;
+}
+```
 
 Troubleshooting:
 

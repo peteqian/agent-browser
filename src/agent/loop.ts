@@ -41,7 +41,9 @@ Respond with the structured decision described in the system prompt.`;
  * policy such as persistence, scoring, and trajectory validation stays with the
  * caller via callbacks.
  */
-export async function runAgent(options: AgentOptions): Promise<AgentResult> {
+export async function runAgent<TData = unknown>(
+  options: AgentOptions<TData>,
+): Promise<AgentResult<TData>> {
   const maxSteps = options.maxSteps ?? 40;
 
   const ownsSession = !options.session && !options.page;
@@ -67,7 +69,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         return {
           success: false,
           summary: "Agent run aborted.",
-          data: collectedJobs.length > 0 ? { jobs: collectedJobs } : null,
+          data: buildFallbackTerminalData(collectedJobs, options.outputSchema),
           steps: step - 1,
         };
       }
@@ -106,7 +108,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         return {
           success: false,
           summary: `Model decision failed: ${message}`,
-          data: collectedJobs.length > 0 ? { jobs: collectedJobs } : null,
+          data: buildFallbackTerminalData(collectedJobs, options.outputSchema),
           steps: step,
         };
       }
@@ -122,14 +124,14 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
 
       const actions = decision.actions ?? [];
       let terminal = false;
-      let terminalResult: AgentResult | null = null;
+      let terminalResult: AgentResult<TData> | null = null;
 
       for (const rawAction of actions) {
         if (options.signal?.aborted) {
           return {
             success: false,
             summary: "Agent run aborted.",
-            data: collectedJobs.length > 0 ? { jobs: collectedJobs } : null,
+            data: buildFallbackTerminalData(collectedJobs, options.outputSchema),
             steps: step,
           };
         }
@@ -161,11 +163,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         });
 
         if (action.name === "done") {
+          const terminalData = buildTerminalData(
+            action.params.data,
+            collectedJobs,
+            options.outputSchema,
+          );
           terminal = true;
           terminalResult = {
-            success: action.params.success,
-            summary: action.params.summary,
-            data: { jobs: collectedJobs },
+            success: terminalData.ok ? action.params.success : false,
+            summary: terminalData.ok ? action.params.summary : terminalData.error,
+            data: terminalData.ok ? terminalData.data : null,
             steps: step,
           };
           break;
@@ -180,7 +187,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
         return {
           success: decision.success ?? true,
           summary: decision.summary ?? "Agent signaled done.",
-          data: { jobs: collectedJobs },
+          data: buildFallbackTerminalData(collectedJobs, options.outputSchema),
           steps: step,
         };
       }
@@ -189,7 +196,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentResult> {
     return {
       success: false,
       summary: `Exceeded max steps (${maxSteps}).`,
-      data: { jobs: collectedJobs },
+      data: buildFallbackTerminalData(collectedJobs, options.outputSchema),
       steps: maxSteps,
     };
   } finally {
@@ -213,4 +220,34 @@ function parseAction(name: string, input: unknown): Action | null {
 
 function isActionName(name: string): name is ActionName {
   return name in actionSchemas;
+}
+
+function buildTerminalData<TData>(
+  explicitData: unknown,
+  collectedJobs: FoundJob[],
+  outputSchema: AgentOptions<TData>["outputSchema"],
+): { ok: true; data: TData | null } | { ok: false; error: string } {
+  if (explicitData !== undefined) {
+    if (!outputSchema) return { ok: true, data: explicitData as TData };
+    const parsed = outputSchema.safeParse(explicitData);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: `Terminal data failed output schema validation: ${parsed.error.message}`,
+      };
+    }
+    return { ok: true, data: parsed.data };
+  }
+  if (outputSchema) return { ok: true, data: null };
+  if (collectedJobs.length > 0) return { ok: true, data: { jobs: collectedJobs } as TData };
+  return { ok: true, data: null };
+}
+
+function buildFallbackTerminalData<TData>(
+  collectedJobs: FoundJob[],
+  outputSchema: AgentOptions<TData>["outputSchema"],
+): TData | null {
+  if (outputSchema) return null;
+  if (collectedJobs.length > 0) return { jobs: collectedJobs } as TData;
+  return null;
 }

@@ -7,11 +7,12 @@ interface CliOptions {
   maxSteps?: number;
   headless: boolean;
   model?: string;
+  verbose: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
   const positional: string[] = [];
-  const opts: Partial<CliOptions> = { headless: true };
+  const opts: Partial<CliOptions> = { headless: true, verbose: false };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -25,6 +26,8 @@ function parseArgs(argv: string[]): CliOptions {
       opts.headless = true;
     } else if (arg === "--model") {
       opts.model = argv[++i];
+    } else if (arg === "--verbose" || arg === "-v") {
+      opts.verbose = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -45,14 +48,19 @@ function parseArgs(argv: string[]): CliOptions {
     maxSteps: opts.maxSteps,
     headless: opts.headless ?? true,
     model: opts.model,
+    verbose: opts.verbose ?? false,
   };
+}
+
+function writeVerbose(event: string, data: unknown) {
+  console.error(JSON.stringify({ event, data }));
 }
 
 function printHelp() {
   console.log(`browser-agent — run a browser task with an LLM agent.
 
 Usage:
-  browser-agent "<task>" [--url <start-url>] [--max-steps N] [--no-headless] [--model gpt-5.3-codex]
+  browser-agent "<task>" [--url <start-url>] [--max-steps N] [--no-headless] [--model gpt-5.3-codex] [--verbose]
 
 Env (optional):
   CODEX_BIN  path to codex binary (default: codex)
@@ -70,8 +78,14 @@ const result = await runAgent({
   startUrl: opts.url,
   maxSteps: opts.maxSteps,
   launch: { headless: opts.headless },
-  decide: createCodexCliDecide({ model: opts.model ?? "gpt-5.3-codex" }),
+  decide: createCodexCliDecide({
+    model: opts.model ?? "gpt-5.3-codex",
+    onRaw: opts.verbose ? (raw, step) => writeVerbose("model.raw", { step, raw }) : undefined,
+  }),
   onStep: (step) => {
+    if (opts.verbose) {
+      writeVerbose("agent.step", step);
+    }
     const short = step.action.name === "done" ? "" : ` -> ${step.result.message}`;
     console.error(
       `[${step.step}] ${step.action.name}(${JSON.stringify(step.action.params)})${short}`,
