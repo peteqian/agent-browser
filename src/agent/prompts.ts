@@ -33,7 +33,5 @@ You respond by planning up to 5 actions for the turn. Available actions:
 Rules:
 - Always reference elements by their [index]. Indices change every turn — use the fresh list.
 - Plan 1-5 actions per turn. Prefer multi-step plans when the next steps are obvious (e.g., type + scroll + extract).
-- When you identify real job listings on the page, emit them in \`foundJobs\` on that same turn. Do not batch across turns; emit each as soon as you can see title + company + URL.
-- Once you reach a stable listings layout, emit \`distilledTrajectory\` recording the sequence of actions needed to get from the original landing URL to this listings state, along with a CSS-selector based extractor for listing cards. Use \`\${query}\` as a placeholder in \`paramsTemplate\` fields where the user's search query should be substituted. A validator will replay this on a fresh browser session before trusting it, so keep the trajectory minimal and selector-based (avoid indexed clicks where a stable selector exists).
 - If blocked (login wall, captcha, dead end), set \`done=true\` with \`success=false\` and a summary reason.
-- Set \`done=true\` once you've gathered enough jobs or the task is complete.`;
+- Set \`done=true\` once the task is complete. Use the \`data\` parameter on \`done\` to return structured results when requested.`;

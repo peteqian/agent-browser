@@ -7,6 +7,7 @@ import { BrowserSession, type Page } from "../browser/session";
 import { formatSnapshotForLLM, serializePage } from "../dom/serialize";
 import { runAgent } from "../agent/loop";
 import { createCodexCliDecide } from "../agent/codexCliDecide";
+import { createAnthropicDecide, createOpenAIDecide } from "../llm";
 
 interface SessionRecord {
   session: BrowserSession;
@@ -559,7 +560,7 @@ export function createServer(): McpServer {
     "run_agent",
     {
       description:
-        "Run an autonomous local Codex agent against a fresh browser session until the task is done.",
+        "Run an autonomous browser agent against a fresh browser session until the task is done. Prefer setting OPENAI_API_KEY/ANTHROPIC_API_KEY in env over passing apiKey here.",
       inputSchema: z.object({
         task: z.string(),
         startUrl: z.string().optional(),
@@ -567,16 +568,40 @@ export function createServer(): McpServer {
         model: z.string().optional(),
         effort: z.string().optional(),
         headless: z.boolean().optional().default(true),
+        provider: z.enum(["codex", "openai", "anthropic"]).optional().default("codex"),
+        apiKey: z.string().optional(),
+        baseUrl: z.string().optional(),
       }),
     },
-    async ({ task, startUrl, maxSteps, model, effort, headless }) => {
+    async ({ task, startUrl, maxSteps, model, effort, headless, provider, apiKey, baseUrl }) => {
+      let decide;
+      switch (provider) {
+        case "openai":
+          decide = createOpenAIDecide({
+            model: model ?? "gpt-4.1-mini",
+            apiKey,
+            baseURL: baseUrl,
+          });
+          break;
+        case "anthropic":
+          decide = createAnthropicDecide({
+            model: model ?? "claude-sonnet-4-5",
+            apiKey,
+            baseURL: baseUrl,
+          });
+          break;
+        case "codex":
+        default:
+          decide = createCodexCliDecide({ model: model ?? "gpt-5.3-codex", effort });
+          break;
+      }
       return jsonResult(
         await runAgent({
           task,
           startUrl,
           maxSteps,
           launch: { headless },
-          decide: createCodexCliDecide({ model: model ?? "gpt-5.3-codex", effort }),
+          decide,
         }),
       );
     },

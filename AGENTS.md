@@ -1,6 +1,6 @@
 # Browser-Agent AI Manual
 
-This package is the TypeScript browser automation agent for the jobseeker workspace. It uses raw Chrome DevTools Protocol plus an LLM decision loop, and exposes both CLI and MCP entry points.
+This package is a generic TypeScript browser automation agent. It uses raw Chrome DevTools Protocol plus an LLM decision loop, and exposes both CLI and MCP entry points. It is domain-agnostic — job-search-specific concepts have been decoupled from the core agent loop.
 
 ## First Read
 
@@ -20,18 +20,20 @@ Current contract source of truth:
 
 - `src/agent/contracts.ts`
 
-Examples of types that belong here:
+Core contract types exported from this package:
 
-- `FoundJob`
-- `TrajectoryStep`
-- `Extractor`
-- `DistilledTrajectory`
 - `DecisionInput`
 - `RawAction`
 - `Decision`
+- `DecideFn`
 - `StepInfo`
 - `AgentResult`
 - `AgentOptions`
+- `AgentControl`
+
+`DecideFn` takes `(input, signal)`. The loop passes an `AbortSignal` that fires when the per-decision timeout elapses or the run is aborted/stopped. Adapters must forward this signal to the underlying SDK call so timed-out work cancels instead of running orphaned. The built-in adapters (`createOpenAIDecide`, `createAnthropicDecide`, `createCodexCliDecide`) already do this; external `decide` implementations should follow the same pattern.
+
+Job-search-specific types (`FoundJob`, `TrajectoryStep`, `Extractor`, `DistilledTrajectory`) previously lived here but have been removed. Downstream packages that need them should define them locally.
 
 When adding or changing shared contract types:
 
@@ -43,6 +45,7 @@ When adding or changing shared contract types:
 ## Architecture Map
 
 - `src/agent/` LLM decision loop, prompts, contracts, and decision adapters.
+- `src/llm/` built-in LLM provider adapters (OpenAI, Anthropic).
 - `src/actions/` browser action types and execution.
 - `src/browser/` browser sessions, profiles, and runtime watchdogs.
 - `src/cdp/` raw Chrome DevTools Protocol launch, discovery, client, and Chrome args.
@@ -59,6 +62,9 @@ When adding or changing shared contract types:
 - `bun run mcp` runs the MCP server.
 - `bun run example:goto` runs the basic navigation example.
 - `bun run example:agent` runs the agent loop example.
+- `bun run example:typed-output` runs the agent loop with a Zod-validated terminal payload.
+- `bun run example:openai` runs the agent loop against the OpenAI provider.
+- `bun run test` runs Vitest (use this, not `bun test`).
 
 Run `bun run typecheck` after meaningful TypeScript edits.
 

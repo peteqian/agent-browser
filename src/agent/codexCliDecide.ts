@@ -19,8 +19,8 @@ interface CodexCliOptions {
 // via apps/server/src/lib/codex.ts::createCodexThread.
 export function createCodexCliDecide(
   options: CodexCliOptions,
-): (input: DecisionInput) => Promise<Decision> {
-  return async (input) => {
+): (input: DecisionInput, signal?: AbortSignal) => Promise<Decision> {
+  return async (input, signal) => {
     const prompt = buildLegacyPrompt(input);
     const raw = await callCodex({
       binaryPath: options.binaryPath,
@@ -30,6 +30,7 @@ export function createCodexCliDecide(
       cwd: options.cwd,
       codexHome: options.codexHome,
       codexAuthHome: options.codexAuthHome,
+      signal,
     });
     options.onRaw?.(raw, input.step);
 
@@ -37,7 +38,6 @@ export function createCodexCliDecide(
     return {
       actions: [{ name: legacy.name, params: legacy.params }],
       done: legacy.name === "done",
-      foundJobs: extractFoundJobs(legacy),
       summary:
         legacy.name === "done"
           ? String((legacy.params as { summary?: unknown }).summary ?? "")
@@ -48,29 +48,6 @@ export function createCodexCliDecide(
           : undefined,
     };
   };
-}
-
-function extractFoundJobs(legacy: { name: string; params: unknown }): Decision["foundJobs"] {
-  if (legacy.name !== "done") return undefined;
-  const data = (legacy.params as { data?: unknown }).data;
-  if (!data || typeof data !== "object") return undefined;
-  const jobs = (data as { jobs?: unknown }).jobs;
-  if (!Array.isArray(jobs)) return undefined;
-  const out: NonNullable<Decision["foundJobs"]> = [];
-  for (const entry of jobs) {
-    if (!entry || typeof entry !== "object") continue;
-    const job = entry as Record<string, unknown>;
-    if (typeof job.title !== "string" || typeof job.url !== "string") continue;
-    out.push({
-      title: job.title,
-      company: typeof job.company === "string" ? job.company : "Unknown company",
-      location: typeof job.location === "string" ? job.location : "Unknown location",
-      url: job.url,
-      summary: typeof job.summary === "string" ? job.summary : "No summary provided.",
-      salary: typeof job.salary === "string" ? job.salary : undefined,
-    });
-  }
-  return out.length > 0 ? out : undefined;
 }
 
 function buildLegacyPrompt(input: DecisionInput): string {
@@ -208,6 +185,7 @@ async function callCodex(request: {
   cwd?: string;
   codexHome?: string;
   codexAuthHome?: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const binPath = request.binaryPath?.trim() || process.env.CODEX_BIN || "codex";
   const args = [
@@ -229,6 +207,10 @@ async function callCodex(request: {
     ensureCodexAuthInHome(request.codexHome, request.codexAuthHome);
   }
 
+  if (request.signal?.aborted) {
+    throw new Error("Codex call aborted before spawn");
+  }
+
   const proc = Bun.spawn(args, {
     stdin: "pipe",
     stdout: "pipe",
@@ -236,6 +218,9 @@ async function callCodex(request: {
     ...(request.cwd ? { cwd: request.cwd } : {}),
     ...(request.codexHome ? { env: { ...process.env, CODEX_HOME: request.codexHome } } : {}),
   });
+
+  const onAbort = () => proc.kill();
+  request.signal?.addEventListener("abort", onAbort, { once: true });
 
   proc.stdin.write(new TextEncoder().encode(request.prompt));
   proc.stdin.end();
@@ -255,11 +240,14 @@ async function callCodex(request: {
     const stdout = await Promise.race([stdoutPromise, timeoutPromise]);
     const exitCode = await proc.exited;
     const stderr = await stderrPromise;
+    if (request.signal?.aborted) {
+      throw new Error("Codex call aborted");
+    }
     if (exitCode !== 0) {
       throw new Error(`Codex exited with code ${exitCode}: ${stderr}`);
     }
     return stdout;
   } finally {
-    // timeoutPromise is fire-and-forget; no explicit cleanup needed
+    request.signal?.removeEventListener("abort", onAbort);
   }
 }

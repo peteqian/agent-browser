@@ -116,7 +116,12 @@ export async function executeAction(
   page: Page,
   action: Action,
   session?: BrowserSession,
+  signal?: AbortSignal,
 ): Promise<ActionResult> {
+  if (signal?.aborted) {
+    const message = `Action ${action.name} aborted before execution`;
+    return { ok: false, message, extractedContent: message };
+  }
   try {
     switch (action.name) {
       case "navigate": {

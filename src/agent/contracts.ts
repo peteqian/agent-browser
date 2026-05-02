@@ -11,34 +11,6 @@ import type { z } from "zod";
  * breaking the integration contract.
  */
 
-/** A normalized job listing extracted by the agent or by replayed selectors. */
-export interface FoundJob {
-  title: string;
-  company: string;
-  location: string;
-  url: string;
-  summary: string;
-  salary?: string;
-}
-
-/** One replayable browser step, with `${query}` placeholders when needed. */
-export interface TrajectoryStep {
-  name: string;
-  paramsTemplate: Record<string, unknown>;
-}
-
-/** Selector-based recipe for extracting visible job listings from a page. */
-export interface Extractor {
-  listingSelector: string;
-  fields: Record<string, { selector: string; attr?: string }>;
-}
-
-/** Minimal replay plan emitted once the agent reaches a stable results layout. */
-export interface DistilledTrajectory {
-  actions: TrajectoryStep[];
-  extractor: Extractor;
-}
-
 /** Snapshot of what the deciding model sees for one loop iteration. */
 export interface DecisionInput {
   task: string;
@@ -60,8 +32,6 @@ export interface RawAction {
 export interface Decision {
   thought?: string;
   actions: RawAction[];
-  foundJobs?: FoundJob[];
-  distilledTrajectory?: DistilledTrajectory;
   done: boolean;
   summary?: string;
   success?: boolean;
@@ -84,20 +54,58 @@ export interface AgentResult<TData = unknown> {
 }
 
 /**
+ * Decide function signature.
+ *
+ * The loop passes an `AbortSignal` that fires when the per-decision timeout
+ * elapses or when the run is aborted/stopped. Adapters should forward the
+ * signal to their underlying SDK call (HTTP cancel, subprocess kill, etc.) so
+ * timed-out work actually stops instead of running orphaned.
+ */
+export type DecideFn = (input: DecisionInput, signal: AbortSignal) => Promise<Decision>;
+
+/** Runtime control surface for externally managed agent runs. */
+export interface AgentControl {
+  readonly signal: AbortSignal;
+  readonly isPaused: boolean;
+  readonly stopReason?: string;
+  pause: () => void;
+  resume: () => void;
+  stop: (reason?: string) => void;
+  waitIfPaused: () => Promise<void>;
+}
+
+/**
  * Input contract for running the browser-agent loop against either owned or
  * caller-supplied browser/page handles.
  */
 export interface AgentOptions<TData = unknown> {
   task: string;
-  decide: (input: DecisionInput) => Promise<Decision>;
+  decide: DecideFn;
   outputSchema?: z.ZodType<TData>;
   maxSteps?: number;
+  stepTimeoutMs?: number;
+  actionTimeoutMs?: number;
+  decisionTimeoutMs?: number;
+  /**
+   * Maximum consecutive failed steps before the loop terminates. Values < 1
+   * are coerced to the default (5); there is no "disabled" mode — pass a very
+   * large number if you need to effectively disable this limit.
+   */
+  maxFailures?: number;
+  finalResponseAfterFailure?: boolean;
+  loopDetectionEnabled?: boolean;
+  loopDetectionWindow?: number;
+  /**
+   * Cooperative control surface (pause/resume/stop). When set, the loop checks
+   * `control.signal` and `control.waitIfPaused()` in addition to `signal`.
+   * Both are honored; either aborting terminates the run. Use `control` for
+   * interactive UIs and `signal` for plain cancellation.
+   */
+  control?: AgentControl;
   signal?: AbortSignal;
   launch?: LaunchOptions;
   startUrl?: string;
   page?: Page;
   session?: BrowserSession;
   onStep?: (info: StepInfo) => void;
-  onFoundJobs?: (jobs: FoundJob[]) => void | Promise<void>;
-  onDistilledTrajectory?: (trajectory: DistilledTrajectory) => void | Promise<void>;
 }

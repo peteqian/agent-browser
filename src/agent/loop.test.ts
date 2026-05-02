@@ -1,0 +1,532 @@
+import { describe, expect, test } from "bun:test";
+
+import type { Page } from "../browser/session";
+import type { DecisionInput, StepInfo } from "./contracts";
+import { AgentController, runAgent } from "./loop";
+
+function createFakePage(overrides: Partial<Page> = {}): Page {
+  const page = {
+    targetId: "page-1",
+    waitForStablePage: async () => {},
+    getPendingNetworkRequests: async () => [],
+    evaluate: async () => ({
+      url: "https://example.com/",
+      title: "Example",
+      elements: [],
+      stability: { readyState: "complete", pendingRequestCount: 0 },
+    }),
+    waitForTimeout: async () => {
+      await new Promise(() => {});
+    },
+    clickByIndex: async () => false,
+    ...overrides,
+  };
+
+  return page as unknown as Page;
+}
+
+describe("runAgent action timeouts", () => {
+  test("records a timed-out action and lets the model recover", async () => {
+    const steps: StepInfo[] = [];
+    const decisions: DecisionInput[] = [];
+
+    const result = await runAgent({
+      task: "recover from a hung wait",
+      page: createFakePage(),
+      maxSteps: 2,
+      actionTimeoutMs: 10,
+      onStep: (step) => steps.push(step),
+      decide: async (input) => {
+        decisions.push(input);
+
+        if (input.step === 1) {
+          return {
+            actions: [{ name: "wait", params: { ms: 10_000 } }],
+            done: false,
+          };
+        }
+
+        expect(input.history.at(-1)?.result).toContain("Timed out while running wait");
+        return {
+          actions: [
+            {
+              name: "done",
+              params: { success: true, summary: "Recovered after timeout" },
+            },
+          ],
+          done: false,
+        };
+      },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      summary: "Recovered after timeout",
+      data: null,
+      steps: 2,
+    });
+    expect(decisions).toHaveLength(2);
+    expect(steps[0]?.result.ok).toBe(false);
+    expect(steps[0]?.result.message).toBe("Action wait timed out after 10ms");
+    expect(steps[1]?.action.name).toBe("done");
+  });
+
+  test("invalid action timeout values fall back instead of timing out immediately", async () => {
+    const result = await runAgent({
+      task: "use fallback timeout",
+      page: createFakePage({
+        waitForTimeout: async () => {},
+      }),
+      maxSteps: 1,
+      actionTimeoutMs: Number.NaN,
+      decide: async () => ({
+        actions: [
+          { name: "wait", params: { ms: 1 } },
+          { name: "done", params: { success: true, summary: "No immediate timeout" } },
+        ],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("No immediate timeout");
+  });
+});
+
+describe("runAgent decision timeouts", () => {
+  test("returns a deterministic failure when decision hangs", async () => {
+    const result = await runAgent({
+      task: "handle hung model",
+      page: createFakePage(),
+      maxSteps: 1,
+      decisionTimeoutMs: 10,
+      decide: async () => {
+        await new Promise(() => {});
+        throw new Error("unreachable");
+      },
+    });
+
+    expect(result).toEqual({
+      success: false,
+      summary: "Model decision failed: Model decision timed out after 10ms",
+      data: null,
+      steps: 1,
+    });
+  });
+
+  test("invalid decision timeout values fall back instead of timing out immediately", async () => {
+    const result = await runAgent({
+      task: "use decision fallback timeout",
+      page: createFakePage(),
+      maxSteps: 1,
+      decisionTimeoutMs: Number.NaN,
+      decide: async () => ({
+        actions: [{ name: "done", params: { success: true, summary: "Decision completed" } }],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("Decision completed");
+  });
+});
+
+describe("runAgent step context timeouts", () => {
+  test("returns a deterministic failure when context preparation hangs", async () => {
+    let decideCalled = false;
+
+    const result = await runAgent({
+      task: "handle hung page context",
+      page: createFakePage({
+        evaluate: async () => {
+          await new Promise(() => {});
+          throw new Error("unreachable");
+        },
+      }),
+      maxSteps: 1,
+      stepTimeoutMs: 10,
+      decide: async () => {
+        decideCalled = true;
+        return { actions: [], done: true };
+      },
+    });
+
+    expect(decideCalled).toBe(false);
+    expect(result).toEqual({
+      success: false,
+      summary: "Step context preparation timed out after 10ms",
+      data: null,
+      steps: 1,
+    });
+  });
+
+  test("invalid step timeout values fall back instead of timing out immediately", async () => {
+    const result = await runAgent({
+      task: "use step fallback timeout",
+      page: createFakePage(),
+      maxSteps: 1,
+      stepTimeoutMs: Number.NaN,
+      decide: async () => ({
+        actions: [{ name: "done", params: { success: true, summary: "Context completed" } }],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("Context completed");
+  });
+});
+
+describe("runAgent consecutive failures", () => {
+  test("stops after maxFailures consecutive single-action failures", async () => {
+    const result = await runAgent({
+      task: "stop after repeated failures",
+      page: createFakePage(),
+      maxSteps: 5,
+      maxFailures: 2,
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 99 } }],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.summary).toBe(
+      "Stopped after 2 consecutive failed steps: Element [99] not found or not clickable",
+    );
+    expect(result.steps).toBe(2);
+  });
+
+  test("stops after maxFailures consecutive multi-action failures", async () => {
+    const result = await runAgent({
+      task: "stop after repeated multi-action failures",
+      page: createFakePage(),
+      maxSteps: 5,
+      maxFailures: 2,
+      finalResponseAfterFailure: false,
+      decide: async () => ({
+        actions: [
+          { name: "click", params: { index: 99 } },
+          { name: "click", params: { index: 100 } },
+        ],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.summary).toBe(
+      "Stopped after 2 consecutive failed steps: Element [100] not found or not clickable",
+    );
+    expect(result.steps).toBe(2);
+  });
+
+  test("does not count partially-successful multi-action steps as failures", async () => {
+    let calls = 0;
+    const result = await runAgent({
+      task: "partial success resets counter",
+      page: createFakePage({
+        clickByIndex: async (index: number) => index === 1,
+      }),
+      maxSteps: 3,
+      maxFailures: 2,
+      finalResponseAfterFailure: false,
+      decide: async () => {
+        calls += 1;
+        if (calls < 3) {
+          return {
+            actions: [
+              { name: "click", params: { index: 99 } },
+              { name: "click", params: { index: 1 } },
+            ],
+            done: false,
+          };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "Done" } }],
+          done: false,
+        };
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("Done");
+  });
+
+  test("can ask for a final recovery response after maxFailures", async () => {
+    let calls = 0;
+
+    const result = await runAgent({
+      task: "summarize after repeated failures",
+      page: createFakePage(),
+      maxSteps: 3,
+      maxFailures: 2,
+      finalResponseAfterFailure: true,
+      decide: async (input) => {
+        calls += 1;
+        if (calls <= 2) {
+          return {
+            actions: [{ name: "click", params: { index: 99 } }],
+            done: false,
+          };
+        }
+
+        expect(input.observation).toContain("FINAL RECOVERY");
+        expect(input.history.at(-1)?.result).toBe("Element [99] not found or not clickable");
+        return {
+          actions: [
+            {
+              name: "done",
+              params: { success: false, summary: "Could not complete after repeated failures" },
+            },
+          ],
+          done: false,
+        };
+      },
+    });
+
+    expect(calls).toBe(3);
+    expect(result).toEqual({
+      success: false,
+      summary: "Could not complete after repeated failures",
+      data: null,
+      steps: 2,
+    });
+  });
+
+  test("can disable final recovery after maxFailures", async () => {
+    let calls = 0;
+
+    const result = await runAgent({
+      task: "stop without recovery",
+      page: createFakePage(),
+      maxSteps: 3,
+      maxFailures: 2,
+      finalResponseAfterFailure: false,
+      decide: async () => {
+        calls += 1;
+        return {
+          actions: [{ name: "click", params: { index: 99 } }],
+          done: false,
+        };
+      },
+    });
+
+    expect(calls).toBe(2);
+    expect(result.summary).toBe(
+      "Stopped after 2 consecutive failed steps: Element [99] not found or not clickable",
+    );
+  });
+
+  test("resets consecutive failures after a successful action step", async () => {
+    let call = 0;
+
+    const result = await runAgent({
+      task: "recover between failures",
+      page: createFakePage({
+        clickByIndex: async (index: number) => index === 1,
+      }),
+      maxSteps: 4,
+      maxFailures: 2,
+      decide: async () => {
+        call += 1;
+        if (call === 1 || call === 3) {
+          return {
+            actions: [{ name: "click", params: { index: 99 } }],
+            done: false,
+          };
+        }
+        if (call === 2) {
+          return {
+            actions: [{ name: "click", params: { index: 1 } }],
+            done: false,
+          };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "Recovered" } }],
+          done: false,
+        };
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("Recovered");
+    expect(result.steps).toBe(4);
+  });
+
+  test("invalid maxFailures values fall back instead of stopping immediately", async () => {
+    const result = await runAgent({
+      task: "use max failure fallback",
+      page: createFakePage(),
+      maxSteps: 1,
+      maxFailures: Number.NaN,
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 99 } }],
+        done: false,
+      }),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.summary).toBe("Exceeded max steps (1).");
+  });
+});
+
+describe("runAgent loop detection", () => {
+  test("stops after repeated identical action fingerprints", async () => {
+    const result = await runAgent({
+      task: "detect repeated loop",
+      page: createFakePage({
+        clickByIndex: async () => true,
+      }),
+      maxSteps: 5,
+      loopDetectionWindow: 3,
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 1 } }],
+        done: false,
+      }),
+    });
+
+    expect(result).toEqual({
+      success: false,
+      summary: "Stopped after detecting a repeated action loop over 3 steps.",
+      data: null,
+      steps: 3,
+    });
+  });
+
+  test("can disable loop detection", async () => {
+    const result = await runAgent({
+      task: "allow repeated loop",
+      page: createFakePage({
+        clickByIndex: async () => true,
+      }),
+      maxSteps: 3,
+      loopDetectionEnabled: false,
+      loopDetectionWindow: 2,
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 1 } }],
+        done: false,
+      }),
+    });
+
+    expect(result).toEqual({
+      success: false,
+      summary: "Exceeded max steps (3).",
+      data: null,
+      steps: 3,
+    });
+  });
+
+  test("invalid loop detection window falls back", async () => {
+    const result = await runAgent({
+      task: "fallback loop window",
+      page: createFakePage({
+        clickByIndex: async () => true,
+      }),
+      maxSteps: 4,
+      loopDetectionWindow: Number.NaN,
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 1 } }],
+        done: false,
+      }),
+    });
+
+    expect(result.summary).toBe("Stopped after detecting a repeated action loop over 4 steps.");
+    expect(result.steps).toBe(4);
+  });
+});
+
+describe("AgentController", () => {
+  test("can pause and resume before the next step", async () => {
+    const control = new AgentController();
+    const decisions: number[] = [];
+    let firstStepSeen: (() => void) | undefined;
+
+    const firstStepPromise = new Promise<void>((resolve) => {
+      firstStepSeen = resolve;
+    });
+
+    const runPromise = runAgent({
+      task: "pause and resume",
+      page: createFakePage({ clickByIndex: async () => true }),
+      control,
+      loopDetectionEnabled: false,
+      maxSteps: 2,
+      onStep: (step) => {
+        if (step.step === 1) {
+          control.pause();
+          firstStepSeen?.();
+        }
+      },
+      decide: async (input) => {
+        decisions.push(input.step);
+        if (input.step === 1) {
+          return { actions: [{ name: "click", params: { index: 1 } }], done: false };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "Resumed" } }],
+          done: false,
+        };
+      },
+    });
+
+    await firstStepPromise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(decisions).toEqual([1]);
+
+    control.resume();
+    const result = await runPromise;
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe("Resumed");
+    expect(decisions).toEqual([1, 2]);
+  });
+
+  test("can stop a paused run", async () => {
+    const control = new AgentController();
+    control.pause();
+
+    const runPromise = runAgent({
+      task: "stop while paused",
+      page: createFakePage(),
+      control,
+      maxSteps: 1,
+      decide: async () => {
+        throw new Error("decide should not be called");
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    control.stop("user requested stop");
+
+    const result = await runPromise;
+
+    expect(result).toEqual({
+      success: false,
+      summary: "Agent run stopped: user requested stop",
+      data: null,
+      steps: 0,
+    });
+  });
+
+  test("can stop before executing the next action", async () => {
+    const control = new AgentController();
+
+    const result = await runAgent({
+      task: "stop before action",
+      page: createFakePage(),
+      control,
+      maxSteps: 1,
+      decide: async () => {
+        control.stop("before action");
+        return { actions: [{ name: "click", params: { index: 1 } }], done: false };
+      },
+    });
+
+    expect(result).toEqual({
+      success: false,
+      summary: "Agent run stopped: before action",
+      data: null,
+      steps: 1,
+    });
+  });
+});

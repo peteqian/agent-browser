@@ -13,7 +13,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 
 ## Current Focus
 
-- `01-agent-loop/01-loop-resilience.md`: continue resilience work after terminal data fixes. Next scoped item is per-action timeout.
+- `01-agent-loop/01-loop-resilience.md`: core loop resilience is done; revisit only for regressions or new runtime requirements.
 - `04-interfaces/01-cli.md`: CLI now has `--verbose`; future work should keep diagnostics JSONL on stderr.
 - `05-quality/01-testing-strategy.md`: add focused tests when runtime behavior becomes stable enough for automation.
 
@@ -25,6 +25,13 @@ Read this file first. It is the compact routing table for the deeper plan files.
 - Schema-enabled runs no longer cast collected job fallback data to arbitrary output types.
 - CLI supports `--verbose` / `-v` JSONL diagnostics with raw model output and per-step data on stderr.
 - Chrome launch polling no longer accumulates `exit` listeners while waiting for the DevTools endpoint.
+- Hung actions now return failed action results via `AgentOptions.actionTimeoutMs`, preserving `onStep` diagnostics and action history.
+- Hung model decisions now return deterministic failed results via `AgentOptions.decisionTimeoutMs`.
+- Hung step context preparation now returns deterministic failed results via `AgentOptions.stepTimeoutMs`.
+- Repeated single-action failures now stop deterministically via `AgentOptions.maxFailures`.
+- Repeated failures can optionally trigger one final terminal recovery response via `AgentOptions.finalResponseAfterFailure`.
+- Repeated action/page loops now stop deterministically via `AgentOptions.loopDetectionEnabled` and `AgentOptions.loopDetectionWindow`.
+- Agent runs can be paused, resumed, and stopped via exported `AgentController` / `AgentControl`.
 
 ## Skip Unless Relevant
 
@@ -36,9 +43,6 @@ Read this file first. It is the compact routing table for the deeper plan files.
 
 ## Backlog
 
-- Per-action timeout and typed timeout failures.
-- Model-decision timeout at the `runAgent` layer.
-- Loop detection and page fingerprints.
 - DOM snapshot enrichment budgets.
 - Action registry for built-ins and custom actions.
 - Message compaction.

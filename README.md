@@ -20,7 +20,16 @@ Common commands:
 - `bun run example:goto` runs the basic navigation example.
 - `bun run example:agent` runs the agent loop example.
 - `bun run example:typed-output` runs an agent example with zod-validated terminal data.
+- `bun run example:openai` runs the agent loop against the OpenAI provider.
 - Add `--verbose` to `bun run cli -- ...` or `browser-agent ...` to print JSONL diagnostics, including raw model output, to stderr.
+
+Providers:
+
+- `--provider codex` (default) — OpenAI Codex CLI via `CODEX_BIN`.
+- `--provider openai` — OpenAI Chat Completions API. Set `OPENAI_API_KEY` in env (preferred over `--api-key`, which appears in process listings).
+- `--provider anthropic` — Anthropic Messages API. Set `ANTHROPIC_API_KEY` in env.
+- `--base-url` overrides the SDK base URL (e.g., for compatible providers or local servers).
+- `--model <id>` overrides the per-provider default model.
 
 Main entry points:
 

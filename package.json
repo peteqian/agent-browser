@@ -27,15 +27,19 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "cli": "bun run bin/cli.ts",
     "mcp": "bun run bin/mcp.ts",
     "example:goto": "bun run examples/goto.ts",
     "example:agent": "bun run examples/agent.ts",
-    "example:typed-output": "bun run examples/typed-output.ts"
+    "example:typed-output": "bun run examples/typed-output.ts",
+    "example:openai": "bun run examples/openai-agent.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "devtools-protocol": "^0.0.1617013",
+    "openai": "^6.35.0",
     "ws": "^8.20.0",
     "zod": "^3.25.76"
   },

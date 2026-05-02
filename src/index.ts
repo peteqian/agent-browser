@@ -13,20 +13,21 @@ export type { ActionResult } from "./actions/execute";
 export { actionSchemas } from "./actions/types";
 export type { Action, ActionName } from "./actions/types";
 
-export { runAgent, buildDecisionPrompt } from "./agent/loop";
+export { AgentController, runAgent, buildDecisionPrompt } from "./agent/loop";
 export { createCodexCliDecide } from "./agent/codexCliDecide";
 export type {
+  AgentControl,
   AgentOptions,
   AgentResult,
+  DecideFn,
   Decision,
   DecisionInput,
-  DistilledTrajectory,
-  Extractor,
-  FoundJob,
   RawAction,
   StepInfo,
-  TrajectoryStep,
 } from "./agent/contracts";
 export { SYSTEM_PROMPT } from "./agent/prompts";
+
+export { createOpenAIDecide, createAnthropicDecide } from "./llm";
+export type { LLMAdapterOptions } from "./llm";
 
 export { createServer as createMcpServer, runStdioServer } from "./mcp/server";
