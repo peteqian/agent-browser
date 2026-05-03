@@ -1,12 +1,7 @@
-#!/usr/bin/env bun
-import {
-  createAnthropicDecide,
-  createCodexCliDecide,
-  createOpenAIDecide,
-  runAgent,
-} from "../src/index";
+#!/usr/bin/env node
+import { createDecide, runAgent, type ProviderId } from "../src/index";
 
-type Provider = "codex" | "openai" | "anthropic";
+type Provider = ProviderId;
 
 interface CliOptions {
   task: string;
@@ -103,26 +98,13 @@ Examples:
 const opts = parseArgs(process.argv.slice(2));
 
 function buildDecide(opts: CliOptions) {
-  switch (opts.provider) {
-    case "openai":
-      return createOpenAIDecide({
-        model: opts.model ?? "gpt-4.1-mini",
-        apiKey: opts.apiKey,
-        baseURL: opts.baseUrl,
-      });
-    case "anthropic":
-      return createAnthropicDecide({
-        model: opts.model ?? "claude-sonnet-4-5",
-        apiKey: opts.apiKey,
-        baseURL: opts.baseUrl,
-      });
-    case "codex":
-    default:
-      return createCodexCliDecide({
-        model: opts.model ?? "gpt-5.3-codex",
-        onRaw: opts.verbose ? (raw, step) => writeVerbose("model.raw", { step, raw }) : undefined,
-      });
-  }
+  return createDecide({
+    provider: opts.provider,
+    model: opts.model,
+    apiKey: opts.apiKey,
+    baseURL: opts.baseUrl,
+    onCodexRaw: opts.verbose ? (raw, step) => writeVerbose("model.raw", { step, raw }) : undefined,
+  });
 }
 
 const result = await runAgent({
