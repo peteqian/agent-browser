@@ -60,6 +60,7 @@ export function createOpenAIDecide(
 
   return async (input: DecisionInput, signal?: AbortSignal): Promise<Decision> => {
     const userContent = buildDecisionPrompt(input);
+    const startedAt = Date.now();
 
     const response = await client.chat.completions.create(
       {
@@ -94,7 +95,19 @@ export function createOpenAIDecide(
       throw new Error(`OpenAI returned invalid JSON: ${raw.slice(0, 200)}`);
     }
 
-    return validateDecision(parsed);
+    const decision = validateDecision(parsed);
+    decision.telemetry = {
+      latencyMs: Date.now() - startedAt,
+      model,
+      usage: response.usage
+        ? {
+            inputTokens: response.usage.prompt_tokens,
+            outputTokens: response.usage.completion_tokens,
+            cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens,
+          }
+        : undefined,
+    };
+    return decision;
   };
 }
 

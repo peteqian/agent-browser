@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Page } from "../browser/session";
-import type { DecisionInput, StepInfo } from "./contracts";
+import type { AgentEvent, DecisionInput, StepInfo } from "./contracts";
 import { AgentController, runAgent } from "./loop";
 
 function createFakePage(overrides: Partial<Page> = {}): Page {
@@ -61,6 +61,7 @@ describe("runAgent action timeouts", () => {
 
     expect(result).toEqual({
       success: true,
+      reason: "completed",
       summary: "Recovered after timeout",
       data: null,
       steps: 2,
@@ -108,6 +109,7 @@ describe("runAgent decision timeouts", () => {
 
     expect(result).toEqual({
       success: false,
+      reason: "decision_timeout",
       summary: "Model decision failed: Model decision timed out after 10ms",
       data: null,
       steps: 1,
@@ -154,6 +156,7 @@ describe("runAgent step context timeouts", () => {
     expect(decideCalled).toBe(false);
     expect(result).toEqual({
       success: false,
+      reason: "step_timeout",
       summary: "Step context preparation timed out after 10ms",
       data: null,
       steps: 1,
@@ -287,6 +290,7 @@ describe("runAgent consecutive failures", () => {
     expect(calls).toBe(3);
     expect(result).toEqual({
       success: false,
+      reason: "failed",
       summary: "Could not complete after repeated failures",
       data: null,
       steps: 2,
@@ -387,6 +391,7 @@ describe("runAgent loop detection", () => {
 
     expect(result).toEqual({
       success: false,
+      reason: "loop_detected",
       summary: "Stopped after detecting a repeated action loop over 3 steps.",
       data: null,
       steps: 3,
@@ -410,6 +415,7 @@ describe("runAgent loop detection", () => {
 
     expect(result).toEqual({
       success: false,
+      reason: "max_steps",
       summary: "Exceeded max steps (3).",
       data: null,
       steps: 3,
@@ -502,10 +508,39 @@ describe("AgentController", () => {
 
     expect(result).toEqual({
       success: false,
+      reason: "stopped",
       summary: "Agent run stopped: user requested stop",
       data: null,
       steps: 0,
     });
+  });
+
+  test("emits decision, action, and terminal events in order", async () => {
+    const events: AgentEvent[] = [];
+
+    await runAgent({
+      task: "emit events",
+      page: createFakePage({ clickByIndex: async () => true }),
+      maxSteps: 1,
+      decide: async () => ({
+        actions: [
+          { name: "click", params: { index: 1 } },
+          { name: "done", params: { success: true, summary: "Done" } },
+        ],
+        done: false,
+      }),
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(events.map((e) => e.type)).toEqual(["decision", "action", "action", "terminal"]);
+    const terminal = events[3];
+    expect(terminal?.type).toBe("terminal");
+    if (terminal?.type === "terminal") {
+      expect(terminal.result.reason).toBe("completed");
+      expect(terminal.result.success).toBe(true);
+    }
   });
 
   test("can stop before executing the next action", async () => {
@@ -524,6 +559,7 @@ describe("AgentController", () => {
 
     expect(result).toEqual({
       success: false,
+      reason: "stopped",
       summary: "Agent run stopped: before action",
       data: null,
       steps: 1,

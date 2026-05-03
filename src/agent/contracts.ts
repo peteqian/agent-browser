@@ -6,7 +6,7 @@ import type { z } from "zod";
 /**
  * Public contract types shared with browser-agent consumers.
  *
- * Downstream packages should import these shapes from `@jobseeker/browser-agent`
+ * Downstream packages should import these shapes from `@browser-agent/core`
  * instead of redefining them locally so the package boundary can move without
  * breaking the integration contract.
  */
@@ -35,6 +35,11 @@ export interface Decision {
   done: boolean;
   summary?: string;
   success?: boolean;
+  /**
+   * Optional per-decision telemetry filled by adapters (token counts, latency,
+   * cost). Surfaces on `decision` events so consumers can track spend.
+   */
+  telemetry?: import("../llm/types").DecisionTelemetry;
 }
 
 /** Durable execution record for one action step. */
@@ -45,11 +50,55 @@ export interface StepInfo {
   result: { ok: boolean; message: string };
 }
 
+/**
+ * Discriminated union of events emitted during an agent run. Subscribe via
+ * `AgentOptions.onEvent` to drive UIs, telemetry, or audit trails.
+ *
+ * Event order per step: one `decision` (after the model returns), one
+ * `action` per executed action, then `terminal` once when the loop exits.
+ */
+export type AgentEvent<TData = unknown> =
+  | { type: "decision"; step: number; decision: Decision }
+  | {
+      type: "action";
+      step: number;
+      url: string;
+      action: Action;
+      result: { ok: boolean; message: string };
+    }
+  | { type: "terminal"; result: AgentResult<TData> };
+
+/** Callback for the structured event stream. May be async. */
+export type OnEventCallback<TData = unknown> = (event: AgentEvent<TData>) => void | Promise<void>;
+
+/**
+ * Why the agent loop terminated. Consumers should branch on this rather than
+ * pattern-matching `summary`.
+ */
+export type TerminalReason =
+  | "completed"
+  | "failed"
+  | "max_steps"
+  | "max_failures"
+  | "loop_detected"
+  | "aborted"
+  | "stopped"
+  | "step_timeout"
+  | "decision_timeout"
+  | "schema_violation"
+  | "decide_error";
+
 /** Terminal summary returned by the browser-agent loop. */
 export interface AgentResult<TData = unknown> {
+  /** True when `reason === "completed"`. Kept for backwards compatibility. */
   success: boolean;
+  /** Structured termination reason. Branch on this in consumer code. */
+  reason: TerminalReason;
+  /** Human-readable summary; may be empty for purely structured callers. */
   summary: string;
+  /** Validated terminal data (when `outputSchema` set) or `done(data=...)` payload. */
   data: TData | null;
+  /** Number of steps the loop executed before terminating. */
   steps: number;
 }
 
@@ -79,12 +128,23 @@ export interface AgentControl {
  * caller-supplied browser/page handles.
  */
 export interface AgentOptions<TData = unknown> {
+  /** Natural-language task the agent should accomplish. Forwarded to `decide`. */
   task: string;
+  /** Decision function — usually `createDecide({...})` or a built-in adapter. */
   decide: DecideFn;
+  /**
+   * Zod schema for the terminal `done(data=...)` payload. When set, the loop
+   * validates the model's terminal data; failure resolves to `reason:
+   * "schema_violation"` with `data: null`.
+   */
   outputSchema?: z.ZodType<TData>;
+  /** Hard cap on loop iterations. Default: 40. */
   maxSteps?: number;
+  /** Timeout for per-step page-context preparation (DOM serialize, pending requests). Default: 180000. */
   stepTimeoutMs?: number;
+  /** Timeout for executing a single action. Default: 30000. */
   actionTimeoutMs?: number;
+  /** Timeout for one model decision call. Aborts the SDK request. Default: 120000. */
   decisionTimeoutMs?: number;
   /**
    * Maximum consecutive failed steps before the loop terminates. Values < 1
@@ -92,8 +152,14 @@ export interface AgentOptions<TData = unknown> {
    * large number if you need to effectively disable this limit.
    */
   maxFailures?: number;
+  /**
+   * After hitting `maxFailures`, ask the model one more time for a clean done
+   * action. Useful for surfacing structured failure summaries. Default: true.
+   */
   finalResponseAfterFailure?: boolean;
+  /** Enable identical-fingerprint loop detection. Default: true. */
   loopDetectionEnabled?: boolean;
+  /** Number of identical consecutive fingerprints to treat as a loop. Default: 4. */
   loopDetectionWindow?: number;
   /**
    * Cooperative control surface (pause/resume/stop). When set, the loop checks
@@ -103,9 +169,23 @@ export interface AgentOptions<TData = unknown> {
    */
   control?: AgentControl;
   signal?: AbortSignal;
+  /** Browser launch options when the loop owns the session (no `page`/`session` given). */
   launch?: LaunchOptions;
+  /** URL to navigate to before the first decision. */
   startUrl?: string;
+  /** Caller-supplied page. When set, loop does not own browser lifecycle. */
   page?: Page;
+  /** Caller-supplied session. When set, loop does not own browser lifecycle. */
   session?: BrowserSession;
+  /**
+   * Legacy per-action callback. Receives one `StepInfo` per executed action.
+   * Prefer `onEvent` for new code — it carries decision and terminal events
+   * too. Both callbacks fire when set.
+   */
   onStep?: (info: StepInfo) => void;
+  /**
+   * Structured event stream. Receives `decision`, `action`, and `terminal`
+   * events in order. Async callbacks are awaited before the loop continues.
+   */
+  onEvent?: OnEventCallback<TData>;
 }

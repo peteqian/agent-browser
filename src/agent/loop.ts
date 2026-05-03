@@ -2,7 +2,14 @@ import { executeAction, type ActionResult } from "../actions/execute";
 import { actionSchemas, type Action, type ActionName } from "../actions/types";
 import { BrowserSession, type Page } from "../browser/session";
 import { formatSnapshotForLLM, serializePage } from "../dom/serialize";
-import type { AgentControl, AgentOptions, AgentResult, Decision, DecisionInput } from "./contracts";
+import type {
+  AgentControl,
+  AgentEvent,
+  AgentOptions,
+  AgentResult,
+  Decision,
+  DecisionInput,
+} from "./contracts";
 import { SYSTEM_PROMPT } from "./prompts";
 
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
@@ -94,6 +101,22 @@ Respond with the structured decision described in the system prompt.`;
 export async function runAgent<TData = unknown>(
   options: AgentOptions<TData>,
 ): Promise<AgentResult<TData>> {
+  const result = await runAgentInner<TData>(options);
+  await emitEvent(options, { type: "terminal", result });
+  return result;
+}
+
+async function emitEvent<TData>(
+  options: AgentOptions<TData>,
+  event: AgentEvent<TData>,
+): Promise<void> {
+  if (!options.onEvent) return;
+  await options.onEvent(event);
+}
+
+async function runAgentInner<TData = unknown>(
+  options: AgentOptions<TData>,
+): Promise<AgentResult<TData>> {
   const maxSteps = options.maxSteps ?? 40;
   const stepTimeoutMs = coerceStepTimeoutMs(options.stepTimeoutMs);
   const actionTimeoutMs = coerceActionTimeoutMs(options.actionTimeoutMs);
@@ -137,6 +160,7 @@ export async function runAgent<TData = unknown>(
         const message = error instanceof Error ? error.message : String(error);
         return {
           success: false,
+          reason: "step_timeout",
           summary: message,
           data: null,
           steps: step,
@@ -164,13 +188,17 @@ export async function runAgent<TData = unknown>(
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const isTimeout = message.includes("Model decision timed out");
         return {
           success: false,
+          reason: isTimeout ? "decision_timeout" : "decide_error",
           summary: `Model decision failed: ${message}`,
           data: null,
           steps: step,
         };
       }
+
+      await emitEvent(options, { type: "decision", step, decision });
 
       const actions = decision.actions ?? [];
       const actionResults: Array<{ ok: boolean; message: string }> = [];
@@ -203,12 +231,14 @@ export async function runAgent<TData = unknown>(
           page = session.getPage(result.activeTargetId);
         }
 
-        options.onStep?.({
+        const stepInfo = {
           step,
           url: snapshot.url,
           action,
           result: { ok: result.ok, message: result.message },
-        });
+        };
+        options.onStep?.(stepInfo);
+        await emitEvent(options, { type: "action", ...stepInfo });
 
         actionHistory.push({
           action: `${action.name}(${JSON.stringify(action.params)})`,
@@ -218,12 +248,23 @@ export async function runAgent<TData = unknown>(
         if (action.name === "done") {
           const terminalData = buildTerminalData(action.params.data, options.outputSchema);
           terminal = true;
-          terminalResult = {
-            success: terminalData.ok ? action.params.success : false,
-            summary: terminalData.ok ? action.params.summary : terminalData.error,
-            data: terminalData.ok ? terminalData.data : null,
-            steps: step,
-          };
+          if (!terminalData.ok) {
+            terminalResult = {
+              success: false,
+              reason: "schema_violation",
+              summary: terminalData.error,
+              data: null,
+              steps: step,
+            };
+          } else {
+            terminalResult = {
+              success: action.params.success,
+              reason: action.params.success ? "completed" : "failed",
+              summary: action.params.summary,
+              data: terminalData.data,
+              steps: step,
+            };
+          }
           break;
         }
       }
@@ -241,6 +282,7 @@ export async function runAgent<TData = unknown>(
         if (isRepeatingLoop(loopFingerprints, loopDetectionWindow)) {
           return {
             success: false,
+            reason: "loop_detected",
             summary: `Stopped after detecting a repeated action loop over ${loopDetectionWindow} steps.`,
             data: null,
             steps: step,
@@ -278,8 +320,10 @@ export async function runAgent<TData = unknown>(
       }
 
       if (decision.done) {
+        const success = decision.success ?? true;
         return {
-          success: decision.success ?? true,
+          success,
+          reason: success ? "completed" : "failed",
           summary: decision.summary ?? "Agent signaled done.",
           data: null,
           steps: step,
@@ -289,6 +333,7 @@ export async function runAgent<TData = unknown>(
 
     return {
       success: false,
+      reason: "max_steps",
       summary: `Exceeded max steps (${maxSteps}).`,
       data: null,
       steps: maxSteps,
@@ -323,6 +368,7 @@ async function checkInterrupt<TData>(
   if (options.signal?.aborted) {
     return {
       success: false,
+      reason: "aborted",
       summary: "Agent run aborted.",
       data: null,
       steps,
@@ -343,6 +389,7 @@ async function checkInterrupt<TData>(
   if (options.signal?.aborted) {
     return {
       success: false,
+      reason: "aborted",
       summary: "Agent run aborted.",
       data: null,
       steps,
@@ -356,10 +403,11 @@ function buildStoppedResult<TData>(
   options: AgentOptions<TData>,
   steps: number,
 ): AgentResult<TData> {
-  const reason = options.control?.stopReason;
+  const stopReason = options.control?.stopReason;
   return {
     success: false,
-    summary: reason ? `Agent run stopped: ${reason}` : "Agent run stopped.",
+    reason: "stopped",
+    summary: stopReason ? `Agent run stopped: ${stopReason}` : "Agent run stopped.",
     data: null,
     steps,
   };
@@ -594,17 +642,29 @@ async function tryFinalFailureRecovery<TData>(input: {
 
     if (doneAction) {
       const terminalData = buildTerminalData(doneAction.params.data, input.options.outputSchema);
+      if (!terminalData.ok) {
+        return {
+          success: false,
+          reason: "schema_violation",
+          summary: terminalData.error,
+          data: null,
+          steps: input.step,
+        };
+      }
       return {
-        success: terminalData.ok ? doneAction.params.success : false,
-        summary: terminalData.ok ? doneAction.params.summary : terminalData.error,
-        data: terminalData.ok ? terminalData.data : null,
+        success: doneAction.params.success,
+        reason: doneAction.params.success ? "completed" : "failed",
+        summary: doneAction.params.summary,
+        data: terminalData.data,
         steps: input.step,
       };
     }
 
     if (decision.done) {
+      const success = decision.success ?? false;
       return {
-        success: decision.success ?? false,
+        success,
+        reason: success ? "completed" : "failed",
         summary: decision.summary ?? "Agent stopped after repeated failures.",
         data: null,
         steps: input.step,
@@ -624,6 +684,7 @@ function buildMaxFailuresResult<TData>(
 ): AgentResult<TData> {
   return {
     success: false,
+    reason: "max_failures",
     summary: `Stopped after ${maxFailures} consecutive failed step${maxFailures === 1 ? "" : "s"}: ${lastFailureMessage ?? "unknown failure"}`,
     data: null,
     steps,

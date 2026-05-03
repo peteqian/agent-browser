@@ -59,6 +59,7 @@ export function createAnthropicDecide(
 
   return async (input: DecisionInput, signal?: AbortSignal): Promise<Decision> => {
     const userContent = buildDecisionPrompt(input);
+    const startedAt = Date.now();
 
     const message = await client.messages.parse(
       {
@@ -80,7 +81,19 @@ export function createAnthropicDecide(
       throw new Error("Anthropic response missing parsed_output");
     }
 
-    return validateDecision(raw);
+    const decision = validateDecision(raw);
+    decision.telemetry = {
+      latencyMs: Date.now() - startedAt,
+      model,
+      usage: message.usage
+        ? {
+            inputTokens: message.usage.input_tokens,
+            outputTokens: message.usage.output_tokens,
+            cachedInputTokens: message.usage.cache_read_input_tokens ?? undefined,
+          }
+        : undefined,
+    };
+    return decision;
   };
 }
 

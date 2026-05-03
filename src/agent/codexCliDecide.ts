@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
 
 import type { Decision, DecisionInput } from "./contracts";
 import { SYSTEM_PROMPT } from "./prompts";
@@ -177,6 +178,25 @@ function ensureCodexAuthInHome(codexHome: string, sourceHome?: string): void {
   }
 }
 
+function collectStream(stream: NodeJS.ReadableStream): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+  });
+}
+
+function waitForExit(proc: ChildProcess): Promise<number | null> {
+  return new Promise((resolve) => {
+    if (proc.exitCode !== null) {
+      resolve(proc.exitCode);
+      return;
+    }
+    proc.on("close", (code) => resolve(code ?? null));
+  });
+}
+
 async function callCodex(request: {
   binaryPath?: string;
   model: string;
@@ -189,7 +209,6 @@ async function callCodex(request: {
 }): Promise<string> {
   const binPath = request.binaryPath?.trim() || process.env.CODEX_BIN || "codex";
   const args = [
-    binPath,
     "exec",
     "--ephemeral",
     "-s",
@@ -211,10 +230,8 @@ async function callCodex(request: {
     throw new Error("Codex call aborted before spawn");
   }
 
-  const proc = Bun.spawn(args, {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
+  const proc = spawn(binPath, args, {
+    stdio: ["pipe", "pipe", "pipe"],
     ...(request.cwd ? { cwd: request.cwd } : {}),
     ...(request.codexHome ? { env: { ...process.env, CODEX_HOME: request.codexHome } } : {}),
   });
@@ -222,11 +239,11 @@ async function callCodex(request: {
   const onAbort = () => proc.kill();
   request.signal?.addEventListener("abort", onAbort, { once: true });
 
-  proc.stdin.write(new TextEncoder().encode(request.prompt));
-  proc.stdin.end();
+  proc.stdin!.write(request.prompt);
+  proc.stdin!.end();
 
-  const stdoutPromise = new Response(proc.stdout).text();
-  const stderrPromise = new Response(proc.stderr).text();
+  const stdoutPromise = collectStream(proc.stdout!);
+  const stderrPromise = collectStream(proc.stderr!);
   const timeoutMs = 120_000;
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -238,7 +255,7 @@ async function callCodex(request: {
 
   try {
     const stdout = await Promise.race([stdoutPromise, timeoutPromise]);
-    const exitCode = await proc.exited;
+    const exitCode = await waitForExit(proc);
     const stderr = await stderrPromise;
     if (request.signal?.aborted) {
       throw new Error("Codex call aborted");

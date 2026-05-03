@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -1356,7 +1357,7 @@ export class Page {
     const outputPath = join(process.cwd(), finalName);
     mkdirSync(dirname(outputPath), { recursive: true });
     const bytes = Buffer.from(base64, "base64");
-    await Bun.write(outputPath, bytes);
+    await writeFile(outputPath, bytes);
     return outputPath;
   }
 
@@ -1401,7 +1402,7 @@ export class Page {
     const finalName = safeName.toLowerCase().endsWith(".pdf") ? safeName : `${safeName}.pdf`;
     const outputPath = join(process.cwd(), finalName);
     mkdirSync(dirname(outputPath), { recursive: true });
-    await Bun.write(outputPath, Buffer.from(result.data, "base64"));
+    await writeFile(outputPath, Buffer.from(result.data, "base64"));
     return outputPath;
   }
 }

@@ -6,8 +6,7 @@ import { executeAction } from "../actions/execute";
 import { BrowserSession, type Page } from "../browser/session";
 import { formatSnapshotForLLM, serializePage } from "../dom/serialize";
 import { runAgent } from "../agent/loop";
-import { createCodexCliDecide } from "../agent/codexCliDecide";
-import { createAnthropicDecide, createOpenAIDecide } from "../llm";
+import { createDecide } from "../llm";
 
 interface SessionRecord {
   session: BrowserSession;
@@ -574,27 +573,13 @@ export function createServer(): McpServer {
       }),
     },
     async ({ task, startUrl, maxSteps, model, effort, headless, provider, apiKey, baseUrl }) => {
-      let decide;
-      switch (provider) {
-        case "openai":
-          decide = createOpenAIDecide({
-            model: model ?? "gpt-4.1-mini",
-            apiKey,
-            baseURL: baseUrl,
-          });
-          break;
-        case "anthropic":
-          decide = createAnthropicDecide({
-            model: model ?? "claude-sonnet-4-5",
-            apiKey,
-            baseURL: baseUrl,
-          });
-          break;
-        case "codex":
-        default:
-          decide = createCodexCliDecide({ model: model ?? "gpt-5.3-codex", effort });
-          break;
-      }
+      const decide = createDecide({
+        provider,
+        model,
+        apiKey,
+        baseURL: baseUrl,
+        effort,
+      });
       return jsonResult(
         await runAgent({
           task,

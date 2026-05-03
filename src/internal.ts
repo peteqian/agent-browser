@@ -1,0 +1,23 @@
+/**
+ * Internal exports — implementation details that escape the package boundary
+ * but are not part of the stable consumer API. May change without bumping the
+ * minor version. Use `@browser-agent/core/internal` to opt in.
+ */
+
+export { CDPClient } from "./cdp/client";
+export { launchBrowser } from "./cdp/launch";
+export type { LaunchOptions, LaunchedBrowser } from "./cdp/launch";
+
+export { BrowserProfile } from "./browser/profile";
+export type { BrowserProfileInit } from "./browser/profile";
+
+export { serializePage, formatSnapshotForLLM } from "./dom/serialize";
+export type { ElementInfo, ElementBBox, PageSnapshot } from "./dom/types";
+
+export { executeAction } from "./actions/execute";
+export type { ActionResult } from "./actions/execute";
+export { actionSchemas } from "./actions/types";
+export type { Action, ActionName } from "./actions/types";
+
+export { buildDecisionPrompt } from "./agent/loop";
+export { SYSTEM_PROMPT } from "./agent/prompts";
