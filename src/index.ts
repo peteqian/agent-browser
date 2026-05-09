@@ -10,6 +10,13 @@ export { BrowserSession, Page } from "./browser/session";
 
 export { AgentController, runAgent } from "./agent/loop";
 export { createCodexCliDecide } from "./agent/codexCliDecide";
+export type { CodexCliOptions } from "./agent/codexCliDecide";
+export { createCodexSdkDecide } from "./agent/codexSdkDecide";
+export type { CodexSdkOptions } from "./agent/codexSdkDecide";
+export { createClaudeCliDecide } from "./agent/claudeCliDecide";
+export type { ClaudeCliOptions } from "./agent/claudeCliDecide";
+export { createClaudeSdkDecide } from "./agent/claudeSdkDecide";
+export type { ClaudeSdkOptions } from "./agent/claudeSdkDecide";
 export type {
   AgentControl,
   AgentEvent,
@@ -18,19 +25,38 @@ export type {
   DecideFn,
   Decision,
   DecisionInput,
+  EnvId,
   OnEventCallback,
   RawAction,
   StepInfo,
   TerminalReason,
+  TransportId,
+  TransportResolution,
 } from "./agent/contracts";
 
-export { createOpenAIDecide, createAnthropicDecide, createDecide } from "./llm";
+export {
+  createOpenAIDecide,
+  createAnthropicDecide,
+  createDecide,
+  resolveTransport,
+  detectEnv,
+} from "./llm";
 export type {
   CreateDecideOptions,
   DecisionTelemetry,
   LLMAdapterOptions,
   ProviderId,
+  ResolveOptions,
+  ResolvedDecide,
   TokenUsage,
 } from "./llm";
 
 export { createServer as createMcpServer, runStdioServer } from "./mcp/server";
+
+export { VERSION, PACKAGE_NAME } from "./version";
+
+export { createDefaultLogger, noopLogger } from "./logger";
+export type { Logger, LogLevel } from "./logger";
+
+export { withRetry, defaultShouldRetry, DEFAULT_RETRY } from "./agent/retry";
+export type { RetryOptions } from "./agent/retry";

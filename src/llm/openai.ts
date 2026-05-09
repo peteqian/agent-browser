@@ -1,37 +1,11 @@
 import OpenAI from "openai";
 
-import { buildDecisionPrompt } from "../agent/loop";
+import { buildDecisionUserPrompt } from "../agent/loop";
 import { SYSTEM_PROMPT } from "../agent/prompts";
 import type { Decision, DecisionInput } from "../agent/contracts";
 import type { LLMAdapterOptions } from "./types";
-
-/**
- * JSON Schema describing the Decision shape for structured output.
- *
- * Kept relaxed (no strict mode) because `params` has a dynamic shape
- * that depends on the action name.
- */
-const decisionJsonSchema = {
-  type: "object",
-  properties: {
-    thought: { type: "string" },
-    actions: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          params: { type: "object" },
-        },
-        required: ["name", "params"],
-      },
-    },
-    done: { type: "boolean" },
-    success: { type: "boolean" },
-    summary: { type: "string" },
-  },
-  required: ["actions", "done"],
-} as const;
+import { buildTelemetry } from "./telemetry";
+import { decisionJsonSchema, validateDecision } from "./decisionSchema";
 
 /**
  * Create a decide adapter backed by the OpenAI Chat Completions API.
@@ -59,7 +33,7 @@ export function createOpenAIDecide(
   const maxTokens = options.maxTokens ?? 4096;
 
   return async (input: DecisionInput, signal?: AbortSignal): Promise<Decision> => {
-    const userContent = buildDecisionPrompt(input);
+    const userContent = buildDecisionUserPrompt(input);
     const startedAt = Date.now();
 
     const response = await client.chat.completions.create(
@@ -96,52 +70,17 @@ export function createOpenAIDecide(
     }
 
     const decision = validateDecision(parsed);
-    decision.telemetry = {
-      latencyMs: Date.now() - startedAt,
+    decision.telemetry = buildTelemetry(
+      startedAt,
       model,
-      usage: response.usage
+      response.usage
         ? {
             inputTokens: response.usage.prompt_tokens,
             outputTokens: response.usage.completion_tokens,
             cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens,
           }
         : undefined,
-    };
+    );
     return decision;
-  };
-}
-
-function validateDecision(raw: unknown): Decision {
-  if (!raw || typeof raw !== "object") {
-    throw new Error("Decision is not an object");
-  }
-
-  const d = raw as Record<string, unknown>;
-
-  if (!Array.isArray(d.actions)) {
-    throw new Error("Decision.actions must be an array");
-  }
-
-  const actions = d.actions.map((a: unknown) => {
-    if (!a || typeof a !== "object") {
-      throw new Error("Decision action is not an object");
-    }
-    const action = a as Record<string, unknown>;
-    if (typeof action.name !== "string") {
-      throw new Error("Decision action missing name");
-    }
-    return { name: action.name, params: action.params ?? {} };
-  });
-
-  if (typeof d.done !== "boolean") {
-    throw new Error("Decision.done must be a boolean");
-  }
-
-  return {
-    thought: typeof d.thought === "string" ? d.thought : undefined,
-    actions,
-    done: d.done,
-    success: typeof d.success === "boolean" ? d.success : undefined,
-    summary: typeof d.summary === "string" ? d.summary : undefined,
   };
 }

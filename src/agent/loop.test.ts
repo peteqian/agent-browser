@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import type { Page } from "../browser/session";
+import type { BrowserSession, Page } from "../browser/session";
 import type { AgentEvent, DecisionInput, StepInfo } from "./contracts";
-import { AgentController, runAgent } from "./loop";
+import { SYSTEM_PROMPT } from "./prompts";
+import { AgentController, buildDecisionPrompt, buildDecisionUserPrompt, runAgent } from "./loop";
 
 function createFakePage(overrides: Partial<Page> = {}): Page {
   const page = {
@@ -24,6 +25,59 @@ function createFakePage(overrides: Partial<Page> = {}): Page {
 
   return page as unknown as Page;
 }
+
+const testSessions = new Set<{ close: () => Promise<void>; closed: boolean }>();
+
+function createFakeSession(overrides: Partial<BrowserSession> = {}): BrowserSession {
+  const closeOverride = overrides.close;
+  const session = {
+    listPageTargetIds: async () => ["page-1"],
+    ...overrides,
+    close: async () => {
+      tracked.closed = true;
+      if (closeOverride) {
+        await closeOverride.call(session);
+      }
+    },
+  };
+  const tracked = session as unknown as { close: () => Promise<void>; closed: boolean };
+  tracked.closed = false;
+  testSessions.add(tracked);
+
+  return session as unknown as BrowserSession;
+}
+
+afterEach(async () => {
+  for (const session of testSessions) {
+    if (!session.closed) {
+      await session.close();
+    }
+  }
+  testSessions.clear();
+});
+
+describe("decision prompt builders", () => {
+  const input: DecisionInput = {
+    task: "Check the heading",
+    step: 1,
+    maxSteps: 3,
+    observation: "URL: https://example.com/",
+    tabs: ["page-1"],
+    activeTab: "page-1",
+    history: [],
+  };
+
+  test("buildDecisionPrompt keeps the legacy system prompt wrapper", () => {
+    expect(buildDecisionPrompt(input)).toStartWith(SYSTEM_PROMPT);
+  });
+
+  test("buildDecisionUserPrompt omits the system prompt for SDK system messages", () => {
+    const prompt = buildDecisionUserPrompt(input);
+    expect(prompt).not.toContain(SYSTEM_PROMPT);
+    expect(prompt).toContain("Task: Check the heading");
+    expect(prompt).toContain("Respond with the structured decision described in the system prompt.");
+  });
+});
 
 describe("runAgent action timeouts", () => {
   test("records a timed-out action and lets the model recover", async () => {
@@ -91,6 +145,40 @@ describe("runAgent action timeouts", () => {
 
     expect(result.success).toBe(true);
     expect(result.summary).toBe("No immediate timeout");
+  });
+});
+
+describe("runAgent browser lifecycle", () => {
+  test("close_browser closes the supplied session and ends the run", async () => {
+    let closed = false;
+    const steps: StepInfo[] = [];
+
+    const result = await runAgent({
+      task: "close the browser",
+      page: createFakePage(),
+      session: createFakeSession({
+        close: async () => {
+          closed = true;
+        },
+      }),
+      maxSteps: 3,
+      onStep: (step) => steps.push(step),
+      decide: async () => ({
+        actions: [{ name: "close_browser", params: {} }],
+        done: false,
+      }),
+    });
+
+    expect(closed).toBe(true);
+    expect(result).toEqual({
+      success: true,
+      reason: "completed",
+      summary: "Closed browser session",
+      data: null,
+      steps: 1,
+    });
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.action.name).toBe("close_browser");
   });
 });
 

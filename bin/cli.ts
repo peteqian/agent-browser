@@ -1,7 +1,21 @@
 #!/usr/bin/env node
-import { createDecide, runAgent, type ProviderId } from "../src/index";
+import { readFileSync } from "node:fs";
+import { parseArgs } from "node:util";
 
-type Provider = ProviderId;
+import {
+  createDecide,
+  resolveTransport,
+  runAgent,
+  VERSION,
+  type AgentEvent,
+  type EnvId,
+  type ProviderId,
+  type TransportId,
+} from "../src/index";
+
+const PROVIDERS: readonly ProviderId[] = ["codex", "claude", "openai", "anthropic"];
+const TRANSPORTS: readonly (TransportId | "auto")[] = ["auto", "sdk-agent", "sdk-api", "cli"];
+const ENVS: readonly (EnvId | "auto")[] = ["auto", "local", "cloud"];
 
 interface CliOptions {
   task: string;
@@ -10,119 +24,320 @@ interface CliOptions {
   headless: boolean;
   model?: string;
   verbose: boolean;
-  provider: Provider;
+  json: boolean;
+  provider: ProviderId;
   apiKey?: string;
   baseUrl?: string;
+  effort?: string;
+  decisionTimeoutMs?: number;
+  stepTimeoutMs?: number;
+  actionTimeoutMs?: number;
+  maxFailures?: number;
+  transport?: TransportId | "auto";
+  env?: EnvId | "auto";
+  outputFile?: string;
+  probe: boolean;
 }
 
-function parseArgs(argv: string[]): CliOptions {
-  const positional: string[] = [];
-  const opts: Partial<CliOptions> = { headless: true, verbose: false, provider: "codex" };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--url") {
-      opts.url = argv[++i];
-    } else if (arg === "--max-steps") {
-      opts.maxSteps = Number.parseInt(argv[++i] ?? "0", 10);
-    } else if (arg === "--no-headless") {
-      opts.headless = false;
-    } else if (arg === "--headless") {
-      opts.headless = true;
-    } else if (arg === "--model") {
-      opts.model = argv[++i];
-    } else if (arg === "--provider") {
-      opts.provider = argv[++i] as Provider;
-    } else if (arg === "--api-key") {
-      opts.apiKey = argv[++i];
-    } else if (arg === "--base-url") {
-      opts.baseUrl = argv[++i];
-    } else if (arg === "--verbose" || arg === "-v") {
-      opts.verbose = true;
-    } else if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    } else if (arg !== undefined) {
-      positional.push(arg);
-    }
-  }
-
-  const task = positional.join(" ").trim();
-  if (!task) {
-    printHelp();
-    process.exit(1);
-  }
-
-  return {
-    task,
-    url: opts.url,
-    maxSteps: opts.maxSteps,
-    headless: opts.headless ?? true,
-    model: opts.model,
-    verbose: opts.verbose ?? false,
-    provider: opts.provider ?? "codex",
-    apiKey: opts.apiKey,
-    baseUrl: opts.baseUrl,
-  };
-}
-
-function writeVerbose(event: string, data: unknown) {
-  console.error(JSON.stringify({ event, data }));
-}
-
-function printHelp() {
-  console.log(`browser-agent — run a browser task with an LLM agent.
+function printHelp(): void {
+  console.log(`browser-agent ${VERSION} — run a browser task with an LLM agent.
 
 Usage:
-  browser-agent "<task>" [--url <start-url>] [--max-steps N] [--no-headless]
-    [--provider codex|openai|anthropic] [--model <model>] [--api-key <key>]
-    [--base-url <url>] [--verbose]
+  browser-agent "<task>" [flags]
+  browser-agent --stdin                       # read task from stdin
+  browser-agent --probe --provider <p>        # show what transport would resolve
+  browser-agent --version                     # print version
+  browser-agent --help
 
-Providers:
-  codex      OpenAI Codex CLI (default)
-  openai     OpenAI Chat Completions API (other compatible providers may work via --base-url)
-  anthropic  Anthropic Messages API
+Flags:
+  --url <url>                Start URL to navigate to before the first step.
+  --max-steps <n>            Hard cap on loop iterations (default 40).
+  --no-headless              Show the browser window.
+  --headless                 Run headless (default).
 
-Env (recommended over --api-key, which appears in process listings and shell history):
-  CODEX_BIN         path to codex binary (default: codex)
-  OPENAI_API_KEY    used when --provider=openai and --api-key omitted
-  ANTHROPIC_API_KEY used when --provider=anthropic and --api-key omitted
+Provider:
+  --provider <p>             ${PROVIDERS.join(" | ")}  (default: codex)
+  --model <id>               Override the default model for the provider.
+  --api-key <k>              API key. Prefer env vars over CLI flag.
+  --base-url <url>           Base URL for OpenAI-compatible providers.
+  --effort <e>               Codex reasoning effort: minimal|low|medium|high|xhigh.
+
+Transport:
+  --transport <t>            ${TRANSPORTS.join(" | ")}  (default: auto)
+  --env <e>                  ${ENVS.join(" | ")}  (default: auto)
+
+Timeouts (ms):
+  --decision-timeout <ms>    Per-decision LLM call timeout (default 120000).
+  --step-timeout <ms>        Per-step page-context preparation timeout (default 180000).
+  --action-timeout <ms>      Per-action execution timeout (default 30000).
+  --max-failures <n>         Consecutive failures before giving up (default 5).
+
+Output:
+  --json                     Stream events as JSONL on stdout instead of result blob.
+  --output-file <path>       Write final result JSON to file (still printed on stdout).
+  --verbose, -v              Print raw model output + step traces to stderr.
+
+Other:
+  --config <path>            Load defaults from JSON file (CLI flags override).
+  --stdin                    Read task from stdin.
+  --probe                    Print resolved transport for the provider and exit.
+  --version, -V              Print version.
+  --help, -h                 This help.
+
+Env vars:
+  CODEX_BIN                  Path to codex binary (default: codex).
+  CLAUDE_BIN                 Path to claude binary (default: claude).
+  OPENAI_API_KEY             Used when --provider=openai|codex SDK and key omitted.
+  ANTHROPIC_API_KEY          Used when --provider=anthropic|claude and key omitted.
+  BROWSER_AGENT_ENV          Force runtime env: local|cloud.
 
 Examples:
   browser-agent "Go to example.com and report the H1"
   browser-agent "Find top 5 frontend jobs on seek.com.au" --url https://seek.com.au --max-steps 30
   browser-agent "Summarize page" --provider openai --model gpt-4.1-mini
+  echo "open google.com" | browser-agent --stdin
+  browser-agent --probe --provider claude
 `);
 }
 
-const opts = parseArgs(process.argv.slice(2));
+interface ConfigFile {
+  url?: string;
+  maxSteps?: number;
+  headless?: boolean;
+  model?: string;
+  provider?: ProviderId;
+  apiKey?: string;
+  baseUrl?: string;
+  effort?: string;
+  decisionTimeoutMs?: number;
+  stepTimeoutMs?: number;
+  actionTimeoutMs?: number;
+  maxFailures?: number;
+  transport?: TransportId | "auto";
+  env?: EnvId | "auto";
+  outputFile?: string;
+}
 
-function buildDecide(opts: CliOptions) {
-  return createDecide({
+function loadConfig(path: string): ConfigFile {
+  try {
+    const raw = readFileSync(path, "utf-8");
+    return JSON.parse(raw) as ConfigFile;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to load --config ${path}: ${message}`, { cause: err });
+  }
+}
+
+function readStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data.trim()));
+    process.stdin.on("error", reject);
+  });
+}
+
+function parseEnum<T extends string>(value: string, allowed: readonly T[], flag: string): T {
+  if (!allowed.includes(value as T)) {
+    throw new Error(`${flag} must be one of: ${allowed.join(", ")}. Got: ${value}`);
+  }
+  return value as T;
+}
+
+function parseInt(value: string, flag: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`${flag} must be a non-negative integer. Got: ${value}`);
+  }
+  return n;
+}
+
+async function buildOptions(argv: string[]): Promise<CliOptions> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      url: { type: "string" },
+      "max-steps": { type: "string" },
+      headless: { type: "boolean" },
+      "no-headless": { type: "boolean" },
+      provider: { type: "string" },
+      model: { type: "string" },
+      "api-key": { type: "string" },
+      "base-url": { type: "string" },
+      effort: { type: "string" },
+      transport: { type: "string" },
+      env: { type: "string" },
+      "decision-timeout": { type: "string" },
+      "step-timeout": { type: "string" },
+      "action-timeout": { type: "string" },
+      "max-failures": { type: "string" },
+      "output-file": { type: "string" },
+      config: { type: "string" },
+      stdin: { type: "boolean" },
+      json: { type: "boolean" },
+      probe: { type: "boolean" },
+      verbose: { type: "boolean", short: "v" },
+      version: { type: "boolean", short: "V" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
+    printHelp();
+    process.exit(0);
+  }
+  if (values.version) {
+    console.log(VERSION);
+    process.exit(0);
+  }
+
+  const config: ConfigFile = values.config ? loadConfig(values.config) : {};
+
+  const provider = parseEnum<ProviderId>(
+    (values.provider as string) ?? config.provider ?? "codex",
+    PROVIDERS,
+    "--provider",
+  );
+  const transport = values.transport
+    ? parseEnum(values.transport as string, TRANSPORTS, "--transport")
+    : config.transport;
+  const env = values.env ? parseEnum(values.env as string, ENVS, "--env") : config.env;
+
+  const headless = values["no-headless"]
+    ? false
+    : values.headless
+      ? true
+      : (config.headless ?? true);
+
+  let task = positionals.join(" ").trim();
+  if (values.stdin) {
+    const fromStdin = await readStdin();
+    task = task ? `${task} ${fromStdin}`.trim() : fromStdin;
+  }
+
+  if (!task && !values.probe) {
+    printHelp();
+    process.exit(1);
+  }
+
+  const maxSteps = values["max-steps"]
+    ? parseInt(values["max-steps"] as string, "--max-steps")
+    : config.maxSteps;
+  const decisionTimeoutMs = values["decision-timeout"]
+    ? parseInt(values["decision-timeout"] as string, "--decision-timeout")
+    : config.decisionTimeoutMs;
+  const stepTimeoutMs = values["step-timeout"]
+    ? parseInt(values["step-timeout"] as string, "--step-timeout")
+    : config.stepTimeoutMs;
+  const actionTimeoutMs = values["action-timeout"]
+    ? parseInt(values["action-timeout"] as string, "--action-timeout")
+    : config.actionTimeoutMs;
+  const maxFailures = values["max-failures"]
+    ? parseInt(values["max-failures"] as string, "--max-failures")
+    : config.maxFailures;
+
+  return {
+    task,
+    url: (values.url as string | undefined) ?? config.url,
+    maxSteps,
+    headless,
+    model: (values.model as string | undefined) ?? config.model,
+    verbose: Boolean(values.verbose),
+    json: Boolean(values.json),
+    provider,
+    apiKey: (values["api-key"] as string | undefined) ?? config.apiKey,
+    baseUrl: (values["base-url"] as string | undefined) ?? config.baseUrl,
+    effort: (values.effort as string | undefined) ?? config.effort,
+    decisionTimeoutMs,
+    stepTimeoutMs,
+    actionTimeoutMs,
+    maxFailures,
+    transport,
+    env,
+    outputFile: (values["output-file"] as string | undefined) ?? config.outputFile,
+    probe: Boolean(values.probe),
+  };
+}
+
+function writeVerbose(event: string, data: unknown): void {
+  console.error(JSON.stringify({ event, data }));
+}
+
+function writeJsonl(event: AgentEvent): void {
+  process.stdout.write(`${JSON.stringify(event)}\n`);
+}
+
+async function main(): Promise<number> {
+  const opts = await buildOptions(process.argv.slice(2));
+
+  if (opts.probe) {
+    const probeResult = resolveTransport({
+      provider: opts.provider,
+      model: opts.model ?? "probe-only",
+      apiKey: opts.apiKey,
+      baseURL: opts.baseUrl,
+      effort: opts.effort,
+      env: opts.env,
+      transport: opts.transport,
+    });
+    console.log(JSON.stringify(probeResult.resolution, null, 2));
+    return 0;
+  }
+
+  const { decide, resolution } = createDecide({
     provider: opts.provider,
     model: opts.model,
     apiKey: opts.apiKey,
     baseURL: opts.baseUrl,
+    effort: opts.effort,
+    env: opts.env,
+    transport: opts.transport,
     onCodexRaw: opts.verbose ? (raw, step) => writeVerbose("model.raw", { step, raw }) : undefined,
   });
+
+  const result = await runAgent({
+    task: opts.task,
+    startUrl: opts.url,
+    maxSteps: opts.maxSteps,
+    decisionTimeoutMs: opts.decisionTimeoutMs,
+    stepTimeoutMs: opts.stepTimeoutMs,
+    actionTimeoutMs: opts.actionTimeoutMs,
+    maxFailures: opts.maxFailures,
+    launch: { headless: opts.headless },
+    decide,
+    transportResolution: resolution,
+    onEvent: opts.json ? writeJsonl : undefined,
+    onStep: (step) => {
+      if (opts.verbose) {
+        writeVerbose("agent.step", step);
+      }
+      if (!opts.json) {
+        const short = step.action.name === "done" ? "" : ` -> ${step.result.message}`;
+        console.error(
+          `[${step.step}] ${step.action.name}(${JSON.stringify(step.action.params)})${short}`,
+        );
+      }
+    },
+  });
+
+  const resultJson = JSON.stringify(result, null, 2);
+  if (opts.outputFile) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(opts.outputFile, resultJson);
+  }
+  if (!opts.json) {
+    console.log(resultJson);
+  }
+  return result.success ? 0 : 1;
 }
 
-const result = await runAgent({
-  task: opts.task,
-  startUrl: opts.url,
-  maxSteps: opts.maxSteps,
-  launch: { headless: opts.headless },
-  decide: buildDecide(opts),
-  onStep: (step) => {
-    if (opts.verbose) {
-      writeVerbose("agent.step", step);
-    }
-    const short = step.action.name === "done" ? "" : ` -> ${step.result.message}`;
-    console.error(
-      `[${step.step}] ${step.action.name}(${JSON.stringify(step.action.params)})${short}`,
-    );
-  },
-});
-
-console.log(JSON.stringify(result, null, 2));
-process.exit(result.success ? 0 : 1);
+main()
+  .then((code) => process.exit(code))
+  .catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`browser-agent: ${message}`);
+    process.exit(1);
+  });

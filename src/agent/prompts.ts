@@ -21,6 +21,7 @@ You respond by planning up to 5 actions for the turn. Available actions:
 - new_tab(url?): open a new tab
 - switch_tab(targetId?, pageId?): switch to an existing tab
 - close_tab(targetId?, pageId?): close tab (defaults to active tab)
+- close_browser(): close the browser session and end the agent run
 - search_page(pattern, ...): search visible page text quickly
 - find_elements(selector, ...): query elements by CSS selector
 - get_dropdown_options(index): list dropdown options for select element

@@ -6,7 +6,9 @@ import { executeAction } from "../actions/execute";
 import { BrowserSession, type Page } from "../browser/session";
 import { formatSnapshotForLLM, serializePage } from "../dom/serialize";
 import { runAgent } from "../agent/loop";
+import type { AgentEvent, OnEventCallback } from "../agent/contracts";
 import { createDecide } from "../llm";
+import { PACKAGE_NAME, VERSION } from "../version";
 
 interface SessionRecord {
   session: BrowserSession;
@@ -41,8 +43,69 @@ function jsonResult(value: unknown) {
   return textResult(typeof value === "string" ? value : JSON.stringify(value));
 }
 
+interface ProgressCapableExtra {
+  sendNotification: (notification: {
+    method: "notifications/progress";
+    params: {
+      progressToken: string | number;
+      progress: number;
+      total?: number;
+      message?: string;
+    };
+  }) => Promise<void>;
+}
+
+/**
+ * Map AgentEvents to MCP progress notifications. Progress must be monotonic,
+ * so we use the running step index — bumped 0.5 between decision and action
+ * within the same step so clients see two updates per step.
+ *
+ * Errors from sendNotification are swallowed: progress is best-effort and
+ * must not break the run.
+ */
+function buildProgressForwarder(
+  extra: ProgressCapableExtra,
+  progressToken: string | number,
+  total: number,
+): OnEventCallback {
+  let progress = 0;
+
+  return async (event: AgentEvent) => {
+    let message: string | undefined;
+    if (event.type === "transport_resolved") {
+      message = `transport=${event.resolution.transport} (${event.resolution.provider}/${event.resolution.env})`;
+    } else if (event.type === "decision") {
+      progress = Math.max(progress + 0.5, event.step);
+      const action = event.decision.actions[0];
+      message = action ? `step ${event.step}: decided ${action.name}` : `step ${event.step}`;
+    } else if (event.type === "action") {
+      progress += 0.5;
+      message = `${event.action.name}: ${event.result.ok ? "ok" : "failed"}`;
+    } else if (event.type === "terminal") {
+      progress = total;
+      message = event.result.success
+        ? `done: ${event.result.summary ?? ""}`
+        : `failed: ${event.result.reason}`;
+    }
+
+    try {
+      await extra.sendNotification({
+        method: "notifications/progress",
+        params: {
+          progressToken,
+          progress,
+          total,
+          ...(message ? { message } : {}),
+        },
+      });
+    } catch {
+      // Best-effort. A broken progress channel must not abort the agent run.
+    }
+  };
+}
+
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "browser-agent", version: "0.0.0" });
+  const server = new McpServer({ name: PACKAGE_NAME, version: VERSION });
 
   server.registerTool(
     "launch_session",
@@ -166,6 +229,27 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "close_browser",
+    {
+      description: "Close a Chromium browser session and release resources.",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const record = getSession(sessionId);
+      const result = await executeAction(
+        record.page,
+        {
+          name: "close_browser",
+          params: {},
+        },
+        record.session,
+      );
+      sessions.delete(sessionId);
+      return jsonResult(result);
+    },
+  );
+
+  server.registerTool(
     "send_keys",
     {
       description: "Send keyboard key(s) to active element.",
@@ -228,6 +312,21 @@ export function createServer(): McpServer {
       return jsonResult(
         await executeAction(page, { name: "wait_for_text", params: { text, timeoutMs } }),
       );
+    },
+  );
+
+  server.registerTool(
+    "wait",
+    {
+      description: "Sleep for the given number of milliseconds (max 10000).",
+      inputSchema: z.object({
+        sessionId: z.string(),
+        ms: z.number().int().positive().max(10_000),
+      }),
+    },
+    async ({ sessionId, ms }) => {
+      const { page } = getSession(sessionId);
+      return jsonResult(await executeAction(page, { name: "wait", params: { ms } }));
     },
   );
 
@@ -526,36 +625,6 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "extract_content",
-    {
-      description: "Extract page content chunk for a query with optional links/images.",
-      inputSchema: z.object({
-        sessionId: z.string(),
-        query: z.string().min(1),
-        extractLinks: z.boolean().optional(),
-        extractImages: z.boolean().optional(),
-        startFromChar: z.number().int().nonnegative().optional(),
-        maxChars: z.number().int().positive().max(200_000).optional(),
-      }),
-    },
-    async ({ sessionId, query, extractLinks, extractImages, startFromChar, maxChars }) => {
-      const { page } = getSession(sessionId);
-      return jsonResult(
-        await executeAction(page, {
-          name: "extract_content",
-          params: {
-            query,
-            extractLinks,
-            extractImages,
-            startFromChar,
-            maxChars,
-          },
-        }),
-      );
-    },
-  );
-
-  server.registerTool(
     "run_agent",
     {
       description:
@@ -567,19 +636,27 @@ export function createServer(): McpServer {
         model: z.string().optional(),
         effort: z.string().optional(),
         headless: z.boolean().optional().default(true),
-        provider: z.enum(["codex", "openai", "anthropic"]).optional().default("codex"),
+        provider: z.enum(["codex", "claude", "openai", "anthropic"]).optional().default("codex"),
         apiKey: z.string().optional(),
         baseUrl: z.string().optional(),
       }),
     },
-    async ({ task, startUrl, maxSteps, model, effort, headless, provider, apiKey, baseUrl }) => {
-      const decide = createDecide({
+    async (
+      { task, startUrl, maxSteps, model, effort, headless, provider, apiKey, baseUrl },
+      extra,
+    ) => {
+      const { decide, resolution } = createDecide({
         provider,
         model,
         apiKey,
         baseURL: baseUrl,
         effort,
       });
+      const progressToken = extra._meta?.progressToken;
+      const onEvent =
+        progressToken !== undefined
+          ? buildProgressForwarder(extra, progressToken, maxSteps ?? 40)
+          : undefined;
       return jsonResult(
         await runAgent({
           task,
@@ -587,6 +664,9 @@ export function createServer(): McpServer {
           maxSteps,
           launch: { headless },
           decide,
+          transportResolution: resolution,
+          signal: extra.signal,
+          onEvent,
         }),
       );
     },

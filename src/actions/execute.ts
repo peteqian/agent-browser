@@ -406,6 +406,18 @@ export async function executeAction(
         };
       }
 
+      case "close_browser": {
+        const currentSession = requireSession(session, action.name);
+        await currentSession.close();
+        const memory = "Closed browser session";
+        return {
+          ok: true,
+          message: memory,
+          extractedContent: memory,
+          longTermMemory: memory,
+        };
+      }
+
       case "search_page": {
         const result = await page.searchPage({
           pattern: action.params.pattern,

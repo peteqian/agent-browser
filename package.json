@@ -12,6 +12,16 @@
     "mcp"
   ],
   "license": "MIT",
+  "bin": {
+    "browser-agent": "./dist/bin/cli.js",
+    "browser-agent-mcp": "./dist/bin/mcp.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md"
+  ],
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
@@ -25,14 +35,6 @@
       "import": "./dist/src/internal.js"
     }
   },
-  "bin": {
-    "browser-agent": "./dist/bin/cli.js",
-    "browser-agent-mcp": "./dist/bin/mcp.js"
-  },
-  "files": ["dist", "README.md", "AGENTS.md", "CHANGELOG.md"],
-  "engines": {
-    "node": ">=18"
-  },
   "scripts": {
     "build": "tsup src/index.ts src/internal.ts bin/cli.ts bin/mcp.ts --format esm --dts --out-dir dist --clean --sourcemap",
     "prepublishOnly": "npm run build",
@@ -45,11 +47,18 @@
     "example:goto": "bun run examples/goto.ts",
     "example:agent": "bun run examples/agent.ts",
     "example:typed-output": "bun run examples/typed-output.ts",
-    "example:openai": "bun run examples/openai-agent.ts"
+    "example:openai": "bun run examples/openai-agent.ts",
+    "example:claude-sdk": "bun run examples/claude-sdk.ts",
+    "example:codex-sdk": "bun run examples/codex-sdk.ts",
+    "example:events": "bun run examples/events.ts",
+    "docs": "typedoc",
+    "docs:watch": "typedoc --watch"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.126",
     "@anthropic-ai/sdk": "^0.92.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/codex-sdk": "^0.128.0",
     "devtools-protocol": "^0.0.1617013",
     "openai": "^6.35.0",
     "ws": "^8.20.0",
@@ -58,6 +67,10 @@
   "devDependencies": {
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
+    "typedoc": "^0.28.19",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

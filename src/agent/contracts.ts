@@ -1,6 +1,7 @@
 import type { Action } from "../actions/types";
 import type { LaunchOptions } from "../cdp/launch";
 import type { BrowserSession, Page } from "../browser/session";
+import type { RetryOptions } from "./retry";
 import type { z } from "zod";
 
 /**
@@ -66,7 +67,30 @@ export type AgentEvent<TData = unknown> =
       action: Action;
       result: { ok: boolean; message: string };
     }
+  | { type: "transport_resolved"; resolution: TransportResolution }
   | { type: "terminal"; result: AgentResult<TData> };
+
+/** Logical environment the agent is running in. Drives transport priority. */
+export type EnvId = "local" | "cloud";
+
+/** Transport mechanism used to reach the model. */
+export type TransportId = "sdk-agent" | "sdk-api" | "cli";
+
+/**
+ * Result of resolving a transport for a given provider. Surfaced via the
+ * `transport_resolved` event and to optional `onResolve` callbacks so
+ * consumers can see when a fallback occurred.
+ */
+export interface TransportResolution {
+  provider: string;
+  env: EnvId;
+  transport: TransportId;
+  /** Set when the resolver fell back from a higher-priority transport. */
+  fallbackFrom?: TransportId;
+  /** Reason the higher-priority transport was unavailable. */
+  fallbackReason?: string;
+  durationMs: number;
+}
 
 /** Callback for the structured event stream. May be async. */
 export type OnEventCallback<TData = unknown> = (event: AgentEvent<TData>) => void | Promise<void>;
@@ -147,6 +171,11 @@ export interface AgentOptions<TData = unknown> {
   /** Timeout for one model decision call. Aborts the SDK request. Default: 120000. */
   decisionTimeoutMs?: number;
   /**
+   * Retry policy for `decide()` calls. Default: 3 attempts with exponential
+   * backoff for 429/5xx/network errors. Pass `{ maxAttempts: 1 }` to disable.
+   */
+  decideRetry?: RetryOptions;
+  /**
    * Maximum consecutive failed steps before the loop terminates. Values < 1
    * are coerced to the default (5); there is no "disabled" mode — pass a very
    * large number if you need to effectively disable this limit.
@@ -188,4 +217,10 @@ export interface AgentOptions<TData = unknown> {
    * events in order. Async callbacks are awaited before the loop continues.
    */
   onEvent?: OnEventCallback<TData>;
+  /**
+   * Transport resolution produced by `resolveTransport` / `createDecide`.
+   * When set, the loop emits a `transport_resolved` event before the first
+   * step so consumers see which transport / fallback was selected.
+   */
+  transportResolution?: TransportResolution;
 }

@@ -28,7 +28,8 @@ Common commands:
 
 Providers:
 
-- `--provider codex` (default) — OpenAI Codex CLI via `CODEX_BIN`.
+- `--provider codex` (default) — Codex Agent SDK when authenticated, falling back to Codex CLI.
+- `--provider claude` — Claude Agent SDK when authenticated, falling back to Claude CLI, then Anthropic API.
 - `--provider openai` — OpenAI Chat Completions API. Set `OPENAI_API_KEY` in env (preferred over `--api-key`, which appears in process listings).
 - `--provider anthropic` — Anthropic Messages API. Set `ANTHROPIC_API_KEY` in env.
 - `--base-url` overrides the SDK base URL (e.g., for compatible providers or local servers).
@@ -48,12 +49,14 @@ import { z } from "zod";
 import { runAgent, createDecide } from "@browser-agent/core";
 
 const Result = z.object({ heading: z.string() });
+const { decide, resolution } = createDecide({ provider: "openai" });
 
 const result = await runAgent({
   task: "Report the page heading via done(data=...).",
   outputSchema: Result,
   startUrl: "https://example.com",
-  decide: createDecide({ provider: "openai" }),
+  decide,
+  transportResolution: resolution,
   onEvent: (event) => {
     if (event.type === "decision" && event.decision.telemetry?.usage) {
       console.log("tokens:", event.decision.telemetry.usage);
@@ -84,7 +87,7 @@ if (result.success) {
 - `data: TData | null` — validated terminal payload.
 - `steps: number` — loop iterations executed.
 
-Action catalog (model emits these via `decision.actions`): `navigate`, `click`, `type`, `scroll`, `wait`, `send_keys`, `select_option`, `upload_file`, `wait_for_text`, `go_back`, `go_forward`, `refresh`, `new_tab`, `switch_tab`, `close_tab`, `search_page`, `find_elements`, `get_dropdown_options`, `find_text`, `screenshot`, `save_as_pdf`, `extract_content`, `done`. Schemas in `src/actions/types.ts`.
+Action catalog (model emits these via `decision.actions`): `navigate`, `click`, `type`, `scroll`, `wait`, `send_keys`, `select_option`, `upload_file`, `wait_for_text`, `go_back`, `go_forward`, `refresh`, `new_tab`, `switch_tab`, `close_tab`, `close_browser`, `search_page`, `find_elements`, `get_dropdown_options`, `find_text`, `screenshot`, `save_as_pdf`, `extract_content`, `done`. Schemas in `src/actions/types.ts`.
 
 Internal exports (no stability guarantee):
 
@@ -109,4 +112,4 @@ Troubleshooting:
 - Package name: `@browser-agent/core`
 - Package type: ESM
 - Package status: publishable (run `bun run build` before `npm publish`)
-- Primary dependencies: `@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`, `devtools-protocol`, `openai`, `ws`, `zod`
+- Primary dependencies: `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`, `@openai/codex-sdk`, `devtools-protocol`, `openai`, `ws`, `zod`

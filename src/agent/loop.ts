@@ -11,6 +11,7 @@ import type {
   DecisionInput,
 } from "./contracts";
 import { SYSTEM_PROMPT } from "./prompts";
+import { withRetry } from "./retry";
 
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
 const DEFAULT_DECISION_TIMEOUT_MS = 120_000;
@@ -70,14 +71,22 @@ export class AgentController implements AgentControl {
  * adapters share the same decision contract.
  */
 export function buildDecisionPrompt(input: DecisionInput): string {
+  return `${SYSTEM_PROMPT}
+
+${buildDecisionUserPrompt(input)}`;
+}
+
+/**
+ * Formats the user-message prompt for structured-output adapters that already
+ * pass `SYSTEM_PROMPT` through the SDK's dedicated system/systemPrompt field.
+ */
+export function buildDecisionUserPrompt(input: DecisionInput): string {
   const historyBlock =
     input.history.length === 0
       ? "(none)"
       : input.history.map((h, idx) => `${idx + 1}. ${h.action} => ${h.result}`).join("\n");
 
-  return `${SYSTEM_PROMPT}
-
-Task: ${input.task}
+  return `Task: ${input.task}
 Step: ${input.step}/${input.maxSteps}
 Active tab: ${input.activeTab}
 Open tabs: ${input.tabs.join(", ")}
@@ -101,6 +110,12 @@ Respond with the structured decision described in the system prompt.`;
 export async function runAgent<TData = unknown>(
   options: AgentOptions<TData>,
 ): Promise<AgentResult<TData>> {
+  if (options.transportResolution) {
+    await emitEvent(options, {
+      type: "transport_resolved",
+      resolution: options.transportResolution,
+    });
+  }
   const result = await runAgentInner<TData>(options);
   await emitEvent(options, { type: "terminal", result });
   return result;
@@ -171,20 +186,27 @@ async function runAgentInner<TData = unknown>(
 
       let decision: Decision;
       try {
-        decision = await withDecideTimeout(
-          options.decide,
-          {
-            task: options.task,
-            step,
-            maxSteps,
-            observation,
-            tabs,
-            activeTab: page.targetId,
-            history: actionHistory.slice(-8),
-          },
-          decisionTimeoutMs,
-          `Model decision timed out after ${decisionTimeoutMs}ms`,
-          combineSignals(options.signal, options.control?.signal),
+        const decideInput = {
+          task: options.task,
+          step,
+          maxSteps,
+          observation,
+          tabs,
+          activeTab: page.targetId,
+          history: actionHistory.slice(-8),
+        };
+        const parentSignal = combineSignals(options.signal, options.control?.signal);
+        decision = await withRetry(
+          (sig) =>
+            withDecideTimeout(
+              options.decide,
+              decideInput,
+              decisionTimeoutMs,
+              `Model decision timed out after ${decisionTimeoutMs}ms`,
+              sig,
+            ),
+          options.decideRetry,
+          parentSignal,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -265,6 +287,18 @@ async function runAgentInner<TData = unknown>(
               steps: step,
             };
           }
+          break;
+        }
+
+        if (action.name === "close_browser" && result.ok) {
+          terminal = true;
+          terminalResult = {
+            success: true,
+            reason: "completed",
+            summary: result.message,
+            data: null,
+            steps: step,
+          };
           break;
         }
       }
@@ -618,22 +652,29 @@ async function tryFinalFailureRecovery<TData>(input: {
   decisionTimeoutMs: number;
 }): Promise<AgentResult<TData> | null> {
   try {
-    const decision = await withDecideTimeout(
-      input.options.decide,
-      {
-        task: input.task,
-        step: input.step,
-        maxSteps: input.maxSteps,
-        observation:
-          `${input.observation}\n\nFINAL RECOVERY: The agent reached its consecutive failure limit. ` +
-          `Return a done action or done=true summary only; do not request more browser actions.`,
-        tabs: input.tabs,
-        activeTab: input.activeTab,
-        history: input.history,
-      },
-      input.decisionTimeoutMs,
-      `Model decision timed out after ${input.decisionTimeoutMs}ms`,
-      combineSignals(input.options.signal, input.options.control?.signal),
+    const recoveryInput = {
+      task: input.task,
+      step: input.step,
+      maxSteps: input.maxSteps,
+      observation:
+        `${input.observation}\n\nFINAL RECOVERY: The agent reached its consecutive failure limit. ` +
+        `Return a done action or done=true summary only; do not request more browser actions.`,
+      tabs: input.tabs,
+      activeTab: input.activeTab,
+      history: input.history,
+    };
+    const recoverySignal = combineSignals(input.options.signal, input.options.control?.signal);
+    const decision = await withRetry(
+      (sig) =>
+        withDecideTimeout(
+          input.options.decide,
+          recoveryInput,
+          input.decisionTimeoutMs,
+          `Model decision timed out after ${input.decisionTimeoutMs}ms`,
+          sig,
+        ),
+      input.options.decideRetry,
+      recoverySignal,
     );
 
     const doneAction = decision.actions

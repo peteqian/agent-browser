@@ -164,6 +164,7 @@ export const actionSchemas = {
   new_tab: newTabAction,
   switch_tab: switchTabAction,
   close_tab: closeTabAction,
+  close_browser: noParamsAction,
   search_page: searchPageAction,
   find_elements: findElementsAction,
   get_dropdown_options: getDropdownOptionsAction,
@@ -192,6 +193,7 @@ export type Action =
   | { name: "new_tab"; params: z.infer<typeof newTabAction> }
   | { name: "switch_tab"; params: z.infer<typeof switchTabAction> }
   | { name: "close_tab"; params: z.infer<typeof closeTabAction> }
+  | { name: "close_browser"; params: z.infer<typeof noParamsAction> }
   | { name: "search_page"; params: z.infer<typeof searchPageAction> }
   | { name: "find_elements"; params: z.infer<typeof findElementsAction> }
   | { name: "get_dropdown_options"; params: z.infer<typeof getDropdownOptionsAction> }
