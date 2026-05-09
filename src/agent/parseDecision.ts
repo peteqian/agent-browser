@@ -19,6 +19,8 @@ export function buildFreeformDecisionPrompt(input: DecisionInput): string {
 Step: ${input.step}
 Active tab: ${input.activeTab}
 Open tabs: ${input.tabs.join(", ")}
+Actions:
+${input.actionCatalog ?? "(default actions)"}
 
 Recent action history:
 ${historyBlock}

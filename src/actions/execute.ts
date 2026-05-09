@@ -112,6 +112,14 @@ function requireSession(
   return session;
 }
 
+function ok(message: string, extra?: Omit<ActionResult, "ok" | "message">): ActionResult {
+  return { ok: true, message, extractedContent: message, ...extra };
+}
+
+function fail(message: string, extra?: Omit<ActionResult, "ok" | "message">): ActionResult {
+  return { ok: false, message, extractedContent: message, ...extra };
+}
+
 export async function executeAction(
   page: Page,
   action: Action,
@@ -119,8 +127,7 @@ export async function executeAction(
   signal?: AbortSignal,
 ): Promise<ActionResult> {
   if (signal?.aborted) {
-    const message = `Action ${action.name} aborted before execution`;
-    return { ok: false, message, extractedContent: message };
+    return fail(`Action ${action.name} aborted before execution`);
   }
   try {
     switch (action.name) {
@@ -132,24 +139,15 @@ export async function executeAction(
         if (!health.ok) {
           const warning =
             `Navigated to ${action.params.url}, but page appears empty. ${health.warning ?? ""}`.trim();
-          return {
-            ok: false,
-            message: warning,
-            extractedContent: warning,
+          return fail(warning, {
             longTermMemory: `Navigation warning for ${action.params.url}`,
             activeTargetId: newTab ? targetPage.targetId : undefined,
-          };
+          });
         }
         const memory = newTab
           ? `Opened new tab and navigated to ${action.params.url}`
           : `Navigated to ${action.params.url}`;
-        return {
-          ok: true,
-          message: memory,
-          extractedContent: memory,
-          longTermMemory: memory,
-          activeTargetId: newTab ? targetPage.targetId : undefined,
-        };
+        return ok(memory, { activeTargetId: newTab ? targetPage.targetId : undefined });
       }
 
       case "click": {
@@ -158,36 +156,19 @@ export async function executeAction(
           typeof action.params.coordinateY === "number"
         ) {
           await page.clickAtCoordinates(action.params.coordinateX, action.params.coordinateY);
-          const memory = `Clicked coordinates (${action.params.coordinateX}, ${action.params.coordinateY})`;
-          return {
-            ok: true,
-            message: memory,
-            extractedContent: memory,
-            longTermMemory: memory,
-          };
+          return ok(`Clicked coordinates (${action.params.coordinateX}, ${action.params.coordinateY})`);
         }
 
         if (typeof action.params.index !== "number") {
-          return {
-            ok: false,
-            message: "Click action requires index or coordinateX+coordinateY",
-            extractedContent: "Click action requires index or coordinateX+coordinateY",
-          };
+          return fail("Click action requires index or coordinateX+coordinateY");
         }
 
         const success = await page.clickByIndex(action.params.index);
         return success
-          ? {
-              ok: true,
-              message: `Clicked element [${action.params.index}]`,
-              extractedContent: `Clicked element [${action.params.index}]`,
+          ? ok(`Clicked element [${action.params.index}]`, {
               longTermMemory: `Clicked element [${action.params.index}]`,
-            }
-          : {
-              ok: false,
-              message: `Element [${action.params.index}] not found or not clickable`,
-              extractedContent: `Element [${action.params.index}] not found or not clickable`,
-            };
+            })
+          : fail(`Element [${action.params.index}] not found or not clickable`);
       }
 
       case "type": {
@@ -197,122 +178,71 @@ export async function executeAction(
           action.params.submit ?? false,
         );
         return success
-          ? {
-              ok: true,
-              message: `Typed into [${action.params.index}]${action.params.submit ? " and submitted" : ""}`,
-              extractedContent: `Typed into [${action.params.index}]${action.params.submit ? " and submitted" : ""}`,
+          ? ok(`Typed into [${action.params.index}]${action.params.submit ? " and submitted" : ""}`, {
               longTermMemory: `Typed into [${action.params.index}]`,
-            }
-          : {
-              ok: false,
-              message: `Element [${action.params.index}] not typable`,
-              extractedContent: `Element [${action.params.index}] not typable`,
-            };
+            })
+          : fail(`Element [${action.params.index}] not typable`);
       }
 
       case "scroll": {
         const pages =
           action.params.pages ?? (action.params.amount ? action.params.amount / 1000 : 1.0);
         await page.scrollByPages(action.params.direction, pages, action.params.index);
-        const memory = `Scrolled ${action.params.direction}${action.params.index !== undefined ? ` on [${action.params.index}]` : ""}`;
-        return {
-          ok: true,
-          message: memory,
-          extractedContent: memory,
-          longTermMemory: memory,
-        };
+        return ok(
+          `Scrolled ${action.params.direction}${action.params.index !== undefined ? ` on [${action.params.index}]` : ""}`,
+        );
       }
 
       case "wait": {
         await page.waitForTimeout(action.params.ms);
-        const memory = `Waited ${action.params.ms}ms`;
-        return { ok: true, message: memory, extractedContent: memory, longTermMemory: memory };
+        return ok(`Waited ${action.params.ms}ms`);
       }
 
       case "send_keys": {
         await page.sendKeys(action.params.keys);
-        const memory = `Sent keys: ${action.params.keys}`;
-        return { ok: true, message: memory, extractedContent: memory, longTermMemory: memory };
+        return ok(`Sent keys: ${action.params.keys}`);
       }
 
       case "select_option": {
         const success = await page.selectOptionByIndex(action.params.index, action.params.value);
         return success
-          ? {
-              ok: true,
-              message: `Selected option on [${action.params.index}]`,
-              extractedContent: `Selected option on [${action.params.index}]`,
+          ? ok(`Selected option on [${action.params.index}]`, {
               longTermMemory: `Selected option on [${action.params.index}]`,
-            }
-          : {
-              ok: false,
-              message: `Could not select option on [${action.params.index}]`,
-              extractedContent: `Could not select option on [${action.params.index}]`,
-            };
+            })
+          : fail(`Could not select option on [${action.params.index}]`);
       }
 
       case "upload_file": {
         const success = await page.uploadFilesByIndex(action.params.index, action.params.paths);
         return success
-          ? {
-              ok: true,
-              message: `Uploaded ${action.params.paths.length} file(s) to [${action.params.index}]`,
-              extractedContent: `Uploaded ${action.params.paths.length} file(s) to [${action.params.index}]`,
+          ? ok(`Uploaded ${action.params.paths.length} file(s) to [${action.params.index}]`, {
               longTermMemory: `Uploaded file(s) to [${action.params.index}]`,
-            }
-          : {
-              ok: false,
-              message: `Could not upload to [${action.params.index}]`,
-              extractedContent: `Could not upload to [${action.params.index}]`,
-            };
+            })
+          : fail(`Could not upload to [${action.params.index}]`);
       }
 
       case "wait_for_text": {
         const found = await page.waitForText(action.params.text, action.params.timeoutMs ?? 10_000);
         return found
-          ? {
-              ok: true,
-              message: `Text found: ${action.params.text}`,
-              extractedContent: `Text found: ${action.params.text}`,
-              longTermMemory: `Found text on page`,
-            }
-          : {
-              ok: false,
-              message: `Timed out waiting for text: ${action.params.text}`,
-              extractedContent: `Timed out waiting for text: ${action.params.text}`,
-            };
+          ? ok(`Text found: ${action.params.text}`, { longTermMemory: "Found text on page" })
+          : fail(`Timed out waiting for text: ${action.params.text}`);
       }
 
       case "go_back": {
         const wentBack = await page.goBack();
-        if (!wentBack) {
-          return {
-            ok: false,
-            message: "Cannot go back — no previous history entry",
-            extractedContent: "Cannot go back — no previous history entry",
-          };
-        }
-        const memory = "Navigated back";
-        return { ok: true, message: memory, extractedContent: memory, longTermMemory: memory };
+        return wentBack ? ok("Navigated back") : fail("Cannot go back — no previous history entry");
       }
 
       case "go_forward": {
         const wentForward = await page.goForward();
-        if (!wentForward) {
-          return {
-            ok: false,
-            message: "Cannot go forward — no next history entry",
-            extractedContent: "Cannot go forward — no next history entry",
-          };
-        }
-        const memory = "Navigated forward";
-        return { ok: true, message: memory, extractedContent: memory, longTermMemory: memory };
+        return wentForward
+          ? ok("Navigated forward")
+          : fail("Cannot go forward — no next history entry");
       }
 
       case "refresh": {
         await page.refresh();
-        const memory = "Refreshed page";
-        return { ok: true, message: memory, extractedContent: memory, longTermMemory: memory };
+        return ok("Refreshed page");
       }
 
       case "new_tab": {
@@ -321,13 +251,10 @@ export async function executeAction(
         if (action.params.url) {
           await tab.goto(action.params.url);
         }
-        return {
-          ok: true,
-          message: `Opened new tab ${tab.targetId}${action.params.url ? ` with ${action.params.url}` : ""}`,
-          extractedContent: `Opened new tab ${tab.targetId}${action.params.url ? ` with ${action.params.url}` : ""}`,
+        return ok(`Opened new tab ${tab.targetId}${action.params.url ? ` with ${action.params.url}` : ""}`, {
           longTermMemory: `Opened new tab ${tab.targetId}`,
           activeTargetId: tab.targetId,
-        };
+        });
       }
 
       case "switch_tab": {
@@ -339,25 +266,16 @@ export async function executeAction(
         }
 
         if (!resolvedTargetId || !targetIds.includes(resolvedTargetId)) {
-          return {
-            ok: false,
-            message:
-              typeof action.params.pageId === "number"
-                ? `Tab pageId ${action.params.pageId} not found`
-                : `Tab not found: ${action.params.targetId}`,
-            extractedContent:
-              typeof action.params.pageId === "number"
-                ? `Tab pageId ${action.params.pageId} not found`
-                : `Tab not found: ${action.params.targetId}`,
-          };
+          return fail(
+            typeof action.params.pageId === "number"
+              ? `Tab pageId ${action.params.pageId} not found`
+              : `Tab not found: ${action.params.targetId}`,
+          );
         }
-        return {
-          ok: true,
-          message: `Switched to tab ${resolvedTargetId}`,
-          extractedContent: `Switched to tab ${resolvedTargetId}`,
+        return ok(`Switched to tab ${resolvedTargetId}`, {
           longTermMemory: `Switched tab to ${resolvedTargetId}`,
           activeTargetId: resolvedTargetId,
-        };
+        });
       }
 
       case "close_tab": {
@@ -371,51 +289,33 @@ export async function executeAction(
           page.targetId;
 
         if (!closingTargetId || !targetIds.includes(closingTargetId)) {
-          return {
-            ok: false,
-            message:
-              typeof action.params.pageId === "number"
-                ? `Tab pageId ${action.params.pageId} not found`
-                : `Tab not found: ${action.params.targetId}`,
-            extractedContent:
-              typeof action.params.pageId === "number"
-                ? `Tab pageId ${action.params.pageId} not found`
-                : `Tab not found: ${action.params.targetId}`,
-          };
+          return fail(
+            typeof action.params.pageId === "number"
+              ? `Tab pageId ${action.params.pageId} not found`
+              : `Tab not found: ${action.params.targetId}`,
+          );
         }
 
         await currentSession.closePage(closingTargetId);
         const remaining = await currentSession.listPageTargetIds();
         if (remaining.length === 0) {
           const replacement = await currentSession.newPage();
-          return {
-            ok: true,
-            message: `Closed tab ${closingTargetId}; opened replacement ${replacement.targetId}`,
-            extractedContent: `Closed tab ${closingTargetId}; opened replacement ${replacement.targetId}`,
+          return ok(`Closed tab ${closingTargetId}; opened replacement ${replacement.targetId}`, {
             longTermMemory: `Closed tab ${closingTargetId}`,
             activeTargetId: replacement.targetId,
-          };
+          });
         }
         const next = remaining[0] as string;
-        return {
-          ok: true,
-          message: `Closed tab ${closingTargetId}`,
-          extractedContent: `Closed tab ${closingTargetId}`,
+        return ok(`Closed tab ${closingTargetId}`, {
           longTermMemory: `Closed tab ${closingTargetId}`,
           activeTargetId: next,
-        };
+        });
       }
 
       case "close_browser": {
         const currentSession = requireSession(session, action.name);
         await currentSession.close();
-        const memory = "Closed browser session";
-        return {
-          ok: true,
-          message: memory,
-          extractedContent: memory,
-          longTermMemory: memory,
-        };
+        return ok("Closed browser session");
       }
 
       case "search_page": {
@@ -428,13 +328,10 @@ export async function executeAction(
           maxResults: action.params.maxResults,
         });
         const formatted = formatSearchResults(result, action.params.pattern);
-        return {
-          ok: true,
-          message: formatted,
-          extractedContent: formatted,
+        return ok(formatted, {
           longTermMemory: `Searched page for "${action.params.pattern}": ${result.total} match${result.total === 1 ? "" : "es"} found.`,
           data: result,
-        };
+        });
       }
 
       case "find_elements": {
@@ -445,13 +342,10 @@ export async function executeAction(
           includeText: action.params.includeText,
         });
         const formatted = formatFindResults(result, action.params.selector);
-        return {
-          ok: true,
-          message: formatted,
-          extractedContent: formatted,
+        return ok(formatted, {
           longTermMemory: `Found ${result.total} element${result.total === 1 ? "" : "s"} matching "${action.params.selector}".`,
           data: result,
-        };
+        });
       }
 
       case "get_dropdown_options": {
@@ -464,52 +358,30 @@ export async function executeAction(
                 "",
                 ...options.map((o, i) => `[${i + 1}] text="${o.text}" value="${o.value}"`),
               ].join("\n");
-        return {
-          ok: true,
-          message: optionsText,
-          extractedContent: optionsText,
+        return ok(optionsText, {
           longTermMemory: `Read ${options.length} dropdown option${options.length === 1 ? "" : "s"} from [${action.params.index}]`,
           data: { index: action.params.index, options },
-        };
+        });
       }
 
       case "find_text": {
         const found = await page.scrollToText(action.params.text);
         return found
-          ? {
-              ok: true,
-              message: `Scrolled to text: ${action.params.text}`,
-              extractedContent: `Scrolled to text: ${action.params.text}`,
-              longTermMemory: "Scrolled to target text",
-            }
-          : {
-              ok: false,
-              message: `Text '${action.params.text}' not found or not visible on page`,
-              extractedContent: `Text '${action.params.text}' not found or not visible on page`,
-            };
+          ? ok(`Scrolled to text: ${action.params.text}`, { longTermMemory: "Scrolled to target text" })
+          : fail(`Text '${action.params.text}' not found or not visible on page`);
       }
 
       case "screenshot": {
         if (action.params.fileName) {
           const savedPath = await page.screenshotToFile(action.params.fileName);
-          const content = `Screenshot saved to ${savedPath}`;
-          return {
-            ok: true,
-            message: content,
-            extractedContent: content,
-            longTermMemory: content,
-            data: { path: savedPath },
-          };
+          return ok(`Screenshot saved to ${savedPath}`, { data: { path: savedPath } });
         }
 
         const base64 = await page.screenshot();
-        return {
-          ok: true,
-          message: "Captured screenshot (base64 PNG)",
-          extractedContent: "Captured screenshot (base64 PNG)",
+        return ok("Captured screenshot (base64 PNG)", {
           longTermMemory: "Captured screenshot",
           data: { base64 },
-        };
+        });
       }
 
       case "save_as_pdf": {
@@ -520,14 +392,7 @@ export async function executeAction(
           scale: action.params.scale,
           paperFormat: action.params.paperFormat,
         });
-        const content = `Saved page as PDF to ${path}`;
-        return {
-          ok: true,
-          message: content,
-          extractedContent: content,
-          longTermMemory: content,
-          data: { path },
-        };
+        return ok(`Saved page as PDF to ${path}`, { data: { path } });
       }
 
       case "extract_content": {
@@ -549,29 +414,16 @@ export async function executeAction(
             ? ` (truncated, continue with startFromChar=${result.stats.nextStartChar})`
             : "");
 
-        return {
-          ok: true,
-          message: statsMsg,
-          extractedContent: wrapped,
-          longTermMemory: statsMsg,
-          data: result,
-        };
+        return ok(statsMsg, { extractedContent: wrapped, data: result });
       }
 
       case "done":
-        return {
-          ok: true,
-          message: `Done (success=${action.params.success}): ${action.params.summary}`,
-          extractedContent: `Done (success=${action.params.success}): ${action.params.summary}`,
+        return ok(`Done (success=${action.params.success}): ${action.params.summary}`, {
           longTermMemory: action.params.summary,
-        };
+        });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      message: `Action ${action.name} failed: ${message}`,
-      extractedContent: `Action ${action.name} failed: ${message}`,
-    };
+    return fail(`Action ${action.name} failed: ${message}`);
   }
 }

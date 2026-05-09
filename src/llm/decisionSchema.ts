@@ -11,6 +11,21 @@ export const decisionJsonSchema = {
   type: "object",
   properties: {
     thought: { type: "string" },
+    memory: { type: "string" },
+    evaluationPreviousGoal: { type: "string" },
+    nextGoal: { type: "string" },
+    plan: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          text: { type: "string" },
+          status: { type: "string", enum: ["pending", "in_progress", "done", "blocked"] },
+        },
+        required: ["id", "text", "status"],
+      },
+    },
     actions: {
       type: "array",
       items: {
@@ -64,9 +79,38 @@ export function validateDecision(raw: unknown): Decision {
 
   return {
     thought: typeof d.thought === "string" ? d.thought : undefined,
+    memory: typeof d.memory === "string" ? d.memory : undefined,
+    evaluationPreviousGoal:
+      typeof d.evaluationPreviousGoal === "string" ? d.evaluationPreviousGoal : undefined,
+    nextGoal: typeof d.nextGoal === "string" ? d.nextGoal : undefined,
+    plan: parsePlan(d.plan),
     actions,
     done: d.done,
     success: typeof d.success === "boolean" ? d.success : undefined,
     summary: typeof d.summary === "string" ? d.summary : undefined,
   };
+}
+
+function parsePlan(raw: unknown): ReturnType<typeof validateDecision>["plan"] {
+  if (!Array.isArray(raw)) return undefined;
+  const allowed = new Set(["pending", "in_progress", "done", "blocked"]);
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const value = item as Record<string, unknown>;
+      if (
+        typeof value.id !== "string" ||
+        typeof value.text !== "string" ||
+        typeof value.status !== "string" ||
+        !allowed.has(value.status)
+      ) {
+        return null;
+      }
+      return {
+        id: value.id,
+        text: value.text,
+        status: value.status as "pending" | "in_progress" | "done" | "blocked",
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 }

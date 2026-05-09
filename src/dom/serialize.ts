@@ -143,6 +143,11 @@ export async function serializePage(page: Page): Promise<PageSnapshot> {
   return page.evaluate<PageSnapshot>(SERIALIZE_SCRIPT);
 }
 
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}...`;
+}
+
 export function formatSnapshotForLLM(snapshot: PageSnapshot, limit = 120): string {
   const lines: string[] = [];
   lines.push(`URL: ${snapshot.url}`);
@@ -172,9 +177,4 @@ export function formatSnapshotForLLM(snapshot: PageSnapshot, limit = 120): strin
   }
 
   return lines.join("\n");
-}
-
-function truncate(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 1)}...`;
 }

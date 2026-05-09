@@ -7,6 +7,19 @@
  */
 
 export { BrowserSession, Page } from "./browser/session";
+export { captureBrowserState } from "./browser/state";
+export type { BrowserStateSummary, BrowserStateOptions, ScreenshotState, TabState } from "./browser/state";
+export { BrowserEventBus } from "./browser/events";
+export type { BrowserEvent, BrowserEventHandler } from "./browser/events";
+
+export {
+  ActionRegistry,
+  createActionRegistry,
+  createDefaultActionRegistry,
+  createDefaultActions,
+} from "./actions/registry";
+export type { ActionContext, ActionDefinition } from "./actions/registry";
+export type { RegisteredAction } from "./actions/registry";
 
 export { AgentController, runAgent } from "./agent/loop";
 export { createCodexCliDecide } from "./agent/codexCliDecide";
@@ -32,7 +45,10 @@ export type {
   TerminalReason,
   TransportId,
   TransportResolution,
+  PlanItem,
 } from "./agent/contracts";
+
+export { runTui } from "./tui/app";
 
 export {
   createOpenAIDecide,

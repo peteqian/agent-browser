@@ -1,9 +1,11 @@
-import { executeAction, type ActionResult } from "../actions/execute";
-import { actionSchemas, type Action, type ActionName } from "../actions/types";
+import type { ActionResult } from "../actions/execute";
+import { createDefaultActionRegistry, type ActionRegistry } from "../actions/registry";
+import type { Action } from "../actions/types";
 import { BrowserSession, type Page } from "../browser/session";
-import { formatSnapshotForLLM, serializePage } from "../dom/serialize";
+import { captureBrowserState, type BrowserStateSummary } from "../browser/state";
 import type {
   AgentControl,
+  AgentAction,
   AgentEvent,
   AgentOptions,
   AgentResult,
@@ -18,6 +20,7 @@ const DEFAULT_DECISION_TIMEOUT_MS = 120_000;
 const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 const DEFAULT_MAX_FAILURES = 5;
 const DEFAULT_LOOP_DETECTION_WINDOW = 4;
+const HISTORY_WINDOW = 8;
 
 export class AgentController implements AgentControl {
   private abortController = new AbortController();
@@ -90,6 +93,8 @@ export function buildDecisionUserPrompt(input: DecisionInput): string {
 Step: ${input.step}/${input.maxSteps}
 Active tab: ${input.activeTab}
 Open tabs: ${input.tabs.join(", ")}
+Actions:
+${input.actionCatalog ?? "(default actions)"}
 
 Recent action history:
 ${historyBlock}
@@ -140,6 +145,9 @@ async function runAgentInner<TData = unknown>(
   const finalResponseAfterFailure = options.finalResponseAfterFailure ?? true;
   const loopDetectionEnabled = options.loopDetectionEnabled ?? true;
   const loopDetectionWindow = coerceLoopDetectionWindow(options.loopDetectionWindow);
+  const vision = options.vision ?? "auto";
+  const planning = options.planning ?? true;
+  const actionRegistry = resolveActionRegistry(options.actions);
 
   const ownsSession = !options.session && !options.page;
   const session =
@@ -155,6 +163,9 @@ async function runAgentInner<TData = unknown>(
     await page.goto(options.startUrl);
   }
 
+  const unsubscribeBrowserEvents = session?.eventBus?.on((event) =>
+    emitEvent(options, { type: "browser_event", event }),
+  );
   const actionHistory: Array<{ action: string; result: string }> = [];
   const loopFingerprints: string[] = [];
   let consecutiveFailures = 0;
@@ -167,7 +178,7 @@ async function runAgentInner<TData = unknown>(
       let context: StepContext;
       try {
         context = await withRejectingTimeout(
-          buildStepContext(page, session),
+          buildStepContext(page, session, vision),
           stepTimeoutMs,
           `Step context preparation timed out after ${stepTimeoutMs}ms`,
         );
@@ -182,7 +193,17 @@ async function runAgentInner<TData = unknown>(
         };
       }
 
-      const { snapshot, observation, tabs } = context;
+      const { browserState, observation, tabs } = context;
+      await session?.eventBus?.emit({ type: "browser_state", state: browserState });
+      await emitEvent(options, { type: "browser_state", step, state: browserState });
+      if (browserState.screenshot) {
+        await session?.eventBus?.emit({
+          type: "screenshot",
+          targetId: page.targetId,
+          screenshot: browserState.screenshot,
+        });
+        await emitEvent(options, { type: "screenshot", step, screenshot: browserState.screenshot });
+      }
 
       let decision: Decision;
       try {
@@ -190,10 +211,12 @@ async function runAgentInner<TData = unknown>(
           task: options.task,
           step,
           maxSteps,
+          browserState,
           observation,
           tabs,
           activeTab: page.targetId,
-          history: actionHistory.slice(-8),
+          history: actionHistory.slice(-HISTORY_WINDOW),
+          actionCatalog: actionRegistry.describeForPrompt(),
         };
         const parentSignal = combineSignals(options.signal, options.control?.signal);
         decision = await withRetry(
@@ -220,6 +243,15 @@ async function runAgentInner<TData = unknown>(
         };
       }
 
+      if (planning && (decision.plan || decision.memory || decision.nextGoal)) {
+        await emitEvent(options, {
+          type: "planning",
+          step,
+          plan: decision.plan,
+          memory: decision.memory,
+          nextGoal: decision.nextGoal,
+        });
+      }
       await emitEvent(options, { type: "decision", step, decision });
 
       const actions = decision.actions ?? [];
@@ -231,7 +263,7 @@ async function runAgentInner<TData = unknown>(
         const beforeActionInterrupt = await checkInterrupt(options, step);
         if (beforeActionInterrupt) return beforeActionInterrupt;
 
-        const action = parseAction(rawAction.name, rawAction.params);
+        const action = actionRegistry.parse(rawAction.name, rawAction.params);
         if (!action) {
           actionResults.push({ ok: false, message: "Invalid action payload" });
           actionHistory.push({
@@ -241,10 +273,13 @@ async function runAgentInner<TData = unknown>(
           continue;
         }
 
+        await session?.eventBus?.emit({ type: "action_start", step, action });
+        await emitEvent(options, { type: "action_start", step, action });
         const result = await executeActionWithTimeout(
           page,
           action,
           session,
+          actionRegistry,
           actionTimeoutMs,
           combineSignals(options.signal, options.control?.signal),
         );
@@ -255,11 +290,12 @@ async function runAgentInner<TData = unknown>(
 
         const stepInfo = {
           step,
-          url: snapshot.url,
+          url: browserState.url,
           action,
           result: { ok: result.ok, message: result.message },
         };
         options.onStep?.(stepInfo);
+        await session?.eventBus?.emit({ type: "action_end", step, action, result });
         await emitEvent(options, { type: "action", ...stepInfo });
 
         actionHistory.push({
@@ -268,7 +304,8 @@ async function runAgentInner<TData = unknown>(
         });
 
         if (action.name === "done") {
-          const terminalData = buildTerminalData(action.params.data, options.outputSchema);
+          const doneParams = action.params as Extract<Action, { name: "done" }>["params"];
+          const terminalData = buildTerminalData(doneParams.data, options.outputSchema);
           terminal = true;
           if (!terminalData.ok) {
             terminalResult = {
@@ -280,9 +317,9 @@ async function runAgentInner<TData = unknown>(
             };
           } else {
             terminalResult = {
-              success: action.params.success,
-              reason: action.params.success ? "completed" : "failed",
-              summary: action.params.summary,
+              success: doneParams.success,
+              reason: doneParams.success ? "completed" : "failed",
+              summary: doneParams.summary,
               data: terminalData.data,
               steps: step,
             };
@@ -308,7 +345,7 @@ async function runAgentInner<TData = unknown>(
       }
 
       if (loopDetectionEnabled && actionResults.length > 0) {
-        const loopFingerprint = buildLoopFingerprint(snapshot, actionResults);
+        const loopFingerprint = buildLoopFingerprint(browserState, actionResults);
         loopFingerprints.push(loopFingerprint);
         if (loopFingerprints.length > loopDetectionWindow) {
           loopFingerprints.shift();
@@ -340,11 +377,13 @@ async function runAgentInner<TData = unknown>(
             task: options.task,
             step,
             maxSteps,
+            browserState,
             observation,
             tabs,
             activeTab: page.targetId,
             history: actionHistory.slice(-8),
             decisionTimeoutMs,
+            actionRegistry,
           });
 
           return recoveryResult ?? failureResult;
@@ -373,26 +412,11 @@ async function runAgentInner<TData = unknown>(
       steps: maxSteps,
     };
   } finally {
+    unsubscribeBrowserEvents?.();
     if (ownsSession && session) {
       await session.close();
     }
   }
-}
-
-/**
- * Parses a model-proposed action against the canonical action schemas and
- * returns `null` for unknown or malformed payloads instead of throwing.
- */
-function parseAction(name: string, input: unknown): Action | null {
-  if (!isActionName(name)) return null;
-  const schema = actionSchemas[name];
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) return null;
-  return { name, params: parsed.data } as Action;
-}
-
-function isActionName(name: string): name is ActionName {
-  return name in actionSchemas;
 }
 
 async function checkInterrupt<TData>(
@@ -400,13 +424,7 @@ async function checkInterrupt<TData>(
   steps: number,
 ): Promise<AgentResult<TData> | null> {
   if (options.signal?.aborted) {
-    return {
-      success: false,
-      reason: "aborted",
-      summary: "Agent run aborted.",
-      data: null,
-      steps,
-    };
+    return buildAbortedResult(steps);
   }
 
   if (!options.control) return null;
@@ -421,16 +439,20 @@ async function checkInterrupt<TData>(
   }
 
   if (options.signal?.aborted) {
-    return {
-      success: false,
-      reason: "aborted",
-      summary: "Agent run aborted.",
-      data: null,
-      steps,
-    };
+    return buildAbortedResult(steps);
   }
 
   return null;
+}
+
+function buildAbortedResult<TData>(steps: number): AgentResult<TData> {
+  return {
+    success: false,
+    reason: "aborted",
+    summary: "Agent run aborted.",
+    data: null,
+    steps,
+  };
 }
 
 function buildStoppedResult<TData>(
@@ -483,13 +505,13 @@ function coerceLoopDetectionWindow(value: number | undefined): number {
 }
 
 function buildLoopFingerprint(
-  snapshot: Awaited<ReturnType<typeof serializePage>>,
+  browserState: BrowserStateSummary,
   actionResults: Array<{ ok: boolean; message: string }>,
 ): string {
   const actionPart = actionResults
     .map((result) => `${result.ok ? "ok" : "fail"}:${result.message}`)
     .join("|");
-  return `${snapshot.url}|${snapshot.title}|${snapshot.elements.length}|${actionPart}`;
+  return `${browserState.url}|${browserState.title}|${browserState.elements.length}|${actionPart}`;
 }
 
 function isRepeatingLoop(fingerprints: string[], window: number): boolean {
@@ -556,8 +578,9 @@ async function withDecideTimeout(
 
 async function executeActionWithTimeout(
   page: Page,
-  action: Action,
+  action: AgentAction,
   session: BrowserSession | undefined,
+  actionRegistry: ActionRegistry,
   timeoutMs: number,
   parentSignal?: AbortSignal,
 ): Promise<ActionResult> {
@@ -572,7 +595,7 @@ async function executeActionWithTimeout(
 
   try {
     return await Promise.race([
-      executeAction(page, action, session, controller.signal),
+      actionRegistry.execute(action, { page, session, signal: controller.signal }),
       new Promise<ActionResult>((resolve) => {
         timeout = setTimeout(() => {
           controller.abort();
@@ -613,7 +636,7 @@ function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal
 }
 
 interface StepContext {
-  snapshot: Awaited<ReturnType<typeof serializePage>>;
+  browserState: BrowserStateSummary;
   observation: string;
   tabs: string[];
 }
@@ -621,23 +644,14 @@ interface StepContext {
 async function buildStepContext(
   page: Page,
   session: BrowserSession | undefined,
+  vision: boolean | "auto",
 ): Promise<StepContext> {
-  await page.waitForStablePage(3_000).catch(() => {
-    // continue even if stabilization timed out
+  const browserState = await captureBrowserState(page, session, {
+    includeScreenshot: vision !== false,
+    screenshotDetail: "auto",
   });
-
-  const snapshot = await serializePage(page);
-  const pending = await page.getPendingNetworkRequests(5).catch(() => []);
-  const pendingSummary =
-    pending.length === 0
-      ? "PENDING REQUESTS: none"
-      : `PENDING REQUESTS (${pending.length}):\n${pending
-          .map((req) => `- ${req.method} ${req.resourceType} ${req.loadingDurationMs}ms ${req.url}`)
-          .join("\n")}`;
-  const observation = `${formatSnapshotForLLM(snapshot)}\n${pendingSummary}`;
-  const tabs = session ? await session.listPageTargetIds() : [page.targetId];
-
-  return { snapshot, observation, tabs };
+  const tabs = browserState.tabs.map((tab) => tab.targetId);
+  return { browserState, observation: browserState.observation, tabs };
 }
 
 async function tryFinalFailureRecovery<TData>(input: {
@@ -645,23 +659,27 @@ async function tryFinalFailureRecovery<TData>(input: {
   task: string;
   step: number;
   maxSteps: number;
+  browserState: BrowserStateSummary;
   observation: string;
   tabs: string[];
   activeTab: string;
   history: Array<{ action: string; result: string }>;
   decisionTimeoutMs: number;
+  actionRegistry: ActionRegistry;
 }): Promise<AgentResult<TData> | null> {
   try {
     const recoveryInput = {
       task: input.task,
       step: input.step,
       maxSteps: input.maxSteps,
+      browserState: input.browserState,
       observation:
         `${input.observation}\n\nFINAL RECOVERY: The agent reached its consecutive failure limit. ` +
         `Return a done action or done=true summary only; do not request more browser actions.`,
       tabs: input.tabs,
       activeTab: input.activeTab,
       history: input.history,
+      actionCatalog: input.actionRegistry.describeForPrompt(),
     };
     const recoverySignal = combineSignals(input.options.signal, input.options.control?.signal);
     const decision = await withRetry(
@@ -678,11 +696,12 @@ async function tryFinalFailureRecovery<TData>(input: {
     );
 
     const doneAction = decision.actions
-      ?.map((rawAction) => parseAction(rawAction.name, rawAction.params))
-      .find((action): action is Extract<Action, { name: "done" }> => action?.name === "done");
+      ?.map((rawAction) => input.actionRegistry.parse(rawAction.name, rawAction.params))
+      .find((action): action is AgentAction => action?.name === "done");
 
     if (doneAction) {
-      const terminalData = buildTerminalData(doneAction.params.data, input.options.outputSchema);
+      const doneParams = doneAction.params as Extract<Action, { name: "done" }>["params"];
+      const terminalData = buildTerminalData(doneParams.data, input.options.outputSchema);
       if (!terminalData.ok) {
         return {
           success: false,
@@ -693,9 +712,9 @@ async function tryFinalFailureRecovery<TData>(input: {
         };
       }
       return {
-        success: doneAction.params.success,
-        reason: doneAction.params.success ? "completed" : "failed",
-        summary: doneAction.params.summary,
+        success: doneParams.success,
+        reason: doneParams.success ? "completed" : "failed",
+        summary: doneParams.summary,
         data: terminalData.data,
         steps: input.step,
       };
@@ -748,4 +767,16 @@ function buildTerminalData<TData>(
     return { ok: true, data: parsed.data };
   }
   return { ok: true, data: null };
+}
+
+function resolveActionRegistry(actions: AgentOptions["actions"]): ActionRegistry {
+  if (!actions) return createDefaultActionRegistry();
+  if (Array.isArray(actions)) {
+    const registry = createDefaultActionRegistry();
+    for (const action of actions) {
+      registry.register(action);
+    }
+    return registry;
+  }
+  return actions;
 }

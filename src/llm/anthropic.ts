@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
 
 import { buildDecisionUserPrompt } from "../agent/loop";
 import { SYSTEM_PROMPT } from "../agent/prompts";
@@ -7,6 +8,24 @@ import type { Decision, DecisionInput } from "../agent/contracts";
 import type { LLMAdapterOptions } from "./types";
 import { buildTelemetry } from "./telemetry";
 import { decisionJsonSchema, validateDecision } from "./decisionSchema";
+
+function buildUserContent(input: DecisionInput): ContentBlockParam[] {
+  const screenshot = input.browserState?.screenshot;
+  const blocks: ContentBlockParam[] = [
+    { type: "text", text: buildDecisionUserPrompt(input) },
+  ];
+  if (screenshot) {
+    blocks.unshift({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: screenshot.mediaType,
+        data: screenshot.base64,
+      },
+    });
+  }
+  return blocks;
+}
 
 /**
  * Create a decide adapter backed by the Anthropic Messages API.
@@ -32,7 +51,6 @@ export function createAnthropicDecide(
   const maxTokens = options.maxTokens ?? 4096;
 
   return async (input: DecisionInput, signal?: AbortSignal): Promise<Decision> => {
-    const userContent = buildDecisionUserPrompt(input);
     const startedAt = Date.now();
 
     const message = await client.messages.parse(
@@ -40,7 +58,7 @@ export function createAnthropicDecide(
         model,
         max_tokens: maxTokens,
         system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userContent }],
+        messages: [{ role: "user", content: buildUserContent(input) }],
         output_config: {
           format: jsonSchemaOutputFormat(
             decisionJsonSchema as unknown as Parameters<typeof jsonSchemaOutputFormat>[0],

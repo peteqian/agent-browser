@@ -7,6 +7,29 @@ import type { LLMAdapterOptions } from "./types";
 import { buildTelemetry } from "./telemetry";
 import { decisionJsonSchema, validateDecision } from "./decisionSchema";
 
+function buildUserContent(input: DecisionInput): Array<{
+  type: "input_text";
+  text: string;
+} | {
+  type: "input_image";
+  image_url: string;
+  detail: string;
+}> {
+  const screenshot = input.browserState?.screenshot;
+  return [
+    { type: "input_text" as const, text: buildDecisionUserPrompt(input) },
+    ...(screenshot
+      ? [
+          {
+            type: "input_image" as const,
+            image_url: `data:${screenshot.mediaType};base64,${screenshot.base64}`,
+            detail: screenshot.detail,
+          },
+        ]
+      : []),
+  ];
+}
+
 /**
  * Create a decide adapter backed by the OpenAI Chat Completions API.
  *
@@ -33,40 +56,32 @@ export function createOpenAIDecide(
   const maxTokens = options.maxTokens ?? 4096;
 
   return async (input: DecisionInput, signal?: AbortSignal): Promise<Decision> => {
-    const userContent = buildDecisionUserPrompt(input);
     const startedAt = Date.now();
 
-    const response = await client.chat.completions.create(
+    const response = await client.responses.parse(
       {
         model,
         temperature,
-        max_completion_tokens: maxTokens,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent },
+        max_output_tokens: maxTokens,
+        input: [
+          { role: "developer", content: [{ type: "input_text", text: SYSTEM_PROMPT }] },
+          { role: "user", content: buildUserContent(input) },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
+        text: {
+          format: {
+            type: "json_schema",
             name: "decision",
             description: "Browser agent decision for the current step",
             schema: decisionJsonSchema as unknown as Record<string, unknown>,
           },
         },
-      },
+      } as Parameters<typeof client.responses.parse>[0],
       { signal },
     );
 
-    const raw = response.choices[0]?.message?.content;
-    if (!raw) {
-      throw new Error("OpenAI response missing content");
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      throw new Error(`OpenAI returned invalid JSON: ${raw.slice(0, 200)}`);
+    const parsed = response.output_parsed;
+    if (!parsed) {
+      throw new Error("OpenAI response missing parsed structured output");
     }
 
     const decision = validateDecision(parsed);
@@ -75,9 +90,9 @@ export function createOpenAIDecide(
       model,
       response.usage
         ? {
-            inputTokens: response.usage.prompt_tokens,
-            outputTokens: response.usage.completion_tokens,
-            cachedInputTokens: response.usage.prompt_tokens_details?.cached_tokens,
+            inputTokens: response.usage.input_tokens,
+            outputTokens: response.usage.output_tokens,
+            cachedInputTokens: response.usage.input_tokens_details?.cached_tokens,
           }
         : undefined,
     );

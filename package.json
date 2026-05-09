@@ -60,11 +60,14 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "^0.128.0",
     "devtools-protocol": "^0.0.1617013",
+    "ink": "^7.0.2",
     "openai": "^6.35.0",
+    "react": "^19.2.6",
     "ws": "^8.20.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/react": "^19.2.14",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typedoc": "^0.28.19",

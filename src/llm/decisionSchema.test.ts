@@ -36,6 +36,22 @@ describe("validateDecision", () => {
     expect(result.summary).toBe("all good");
   });
 
+  test("preserves planning fields when present", () => {
+    const result = validateDecision({
+      memory: "Remembered page state",
+      evaluationPreviousGoal: "Previous goal succeeded",
+      nextGoal: "Click submit",
+      plan: [{ id: "1", text: "Fill form", status: "in_progress" }],
+      actions: [],
+      done: false,
+    });
+
+    expect(result.memory).toBe("Remembered page state");
+    expect(result.evaluationPreviousGoal).toBe("Previous goal succeeded");
+    expect(result.nextGoal).toBe("Click submit");
+    expect(result.plan).toEqual([{ id: "1", text: "Fill form", status: "in_progress" }]);
+  });
+
   test("drops non-string thought silently", () => {
     const result = validateDecision({
       thought: 42,

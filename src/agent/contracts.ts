@@ -1,6 +1,9 @@
 import type { Action } from "../actions/types";
+import type { ActionDefinition, ActionRegistry, RegisteredAction } from "../actions/registry";
 import type { LaunchOptions } from "../cdp/launch";
 import type { BrowserSession, Page } from "../browser/session";
+import type { BrowserEvent } from "../browser/events";
+import type { BrowserStateSummary } from "../browser/state";
 import type { RetryOptions } from "./retry";
 import type { z } from "zod";
 
@@ -17,10 +20,12 @@ export interface DecisionInput {
   task: string;
   step: number;
   maxSteps: number;
+  browserState?: BrowserStateSummary;
   observation: string;
   tabs: string[];
   activeTab: string;
   history: Array<{ action: string; result: string }>;
+  actionCatalog?: string;
 }
 
 /** Raw model-proposed action before schema parsing and execution. */
@@ -32,6 +37,10 @@ export interface RawAction {
 /** Structured model output consumed by `runAgent`. */
 export interface Decision {
   thought?: string;
+  memory?: string;
+  evaluationPreviousGoal?: string;
+  nextGoal?: string;
+  plan?: PlanItem[];
   actions: RawAction[];
   done: boolean;
   summary?: string;
@@ -43,11 +52,19 @@ export interface Decision {
   telemetry?: import("../llm/types").DecisionTelemetry;
 }
 
+export interface PlanItem {
+  id: string;
+  text: string;
+  status: "pending" | "in_progress" | "done" | "blocked";
+}
+
+export type AgentAction = Action | RegisteredAction;
+
 /** Durable execution record for one action step. */
 export interface StepInfo {
   step: number;
   url: string;
-  action: Action;
+  action: AgentAction;
   result: { ok: boolean; message: string };
 }
 
@@ -59,12 +76,17 @@ export interface StepInfo {
  * `action` per executed action, then `terminal` once when the loop exits.
  */
 export type AgentEvent<TData = unknown> =
+  | { type: "browser_state"; step: number; state: BrowserStateSummary }
+  | { type: "screenshot"; step: number; screenshot: NonNullable<BrowserStateSummary["screenshot"]> }
+  | { type: "action_start"; step: number; action: AgentAction }
+  | { type: "planning"; step: number; plan?: PlanItem[]; memory?: string; nextGoal?: string }
+  | { type: "browser_event"; event: BrowserEvent }
   | { type: "decision"; step: number; decision: Decision }
   | {
       type: "action";
       step: number;
       url: string;
-      action: Action;
+      action: AgentAction;
       result: { ok: boolean; message: string };
     }
   | { type: "transport_resolved"; resolution: TransportResolution }
@@ -156,6 +178,12 @@ export interface AgentOptions<TData = unknown> {
   task: string;
   /** Decision function — usually `createDecide({...})` or a built-in adapter. */
   decide: DecideFn;
+  /** Capture screenshots and pass them to providers that support multimodal input. Default: "auto". */
+  vision?: boolean | "auto";
+  /** Include planning/memory fields in prompts and events. Default: true. */
+  planning?: boolean;
+  /** Override or extend the action catalog used by the model and executor. */
+  actions?: ActionRegistry | ActionDefinition[];
   /**
    * Zod schema for the terminal `done(data=...)` payload. When set, the loop
    * validates the model's terminal data; failure resolves to `reason:

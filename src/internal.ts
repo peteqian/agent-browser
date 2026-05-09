@@ -13,11 +13,20 @@ export type { BrowserProfileInit } from "./browser/profile";
 
 export { serializePage, formatSnapshotForLLM } from "./dom/serialize";
 export type { ElementInfo, ElementBBox, PageSnapshot } from "./dom/types";
+export { captureBrowserState } from "./browser/state";
+export type { BrowserStateSummary, ScreenshotState } from "./browser/state";
 
 export { executeAction } from "./actions/execute";
 export type { ActionResult } from "./actions/execute";
 export { actionSchemas } from "./actions/types";
 export type { Action, ActionName } from "./actions/types";
+export {
+  ActionRegistry,
+  createActionRegistry,
+  createDefaultActionRegistry,
+  createDefaultActions,
+} from "./actions/registry";
+export type { ActionDefinition, ActionContext, RegisteredAction } from "./actions/registry";
 
 export { buildDecisionPrompt } from "./agent/loop";
 export { SYSTEM_PROMPT } from "./agent/prompts";

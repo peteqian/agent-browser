@@ -25,6 +25,7 @@ Common commands:
 - `bun run example:typed-output` runs an agent example with zod-validated terminal data.
 - `bun run example:openai` runs the agent loop against the OpenAI provider.
 - Add `--verbose` to `bun run cli -- ...` or `browser-agent ...` to print JSONL diagnostics, including raw model output, to stderr.
+- Add `--tui` to `browser-agent ...` to run the Ink terminal dashboard with live browser state, plan, actions, and pause/resume controls.
 
 Providers:
 
@@ -34,6 +35,13 @@ Providers:
 - `--provider anthropic` — Anthropic Messages API. Set `ANTHROPIC_API_KEY` in env.
 - `--base-url` overrides the SDK base URL (e.g., for compatible providers or local servers).
 - `--model <id>` overrides the per-provider default model.
+
+Vision, planning, and actions:
+
+- `runAgent()` captures a first-class `BrowserStateSummary` each step: DOM observation text, indexed elements, tabs, URL/title, viewport, pending requests, and an optional PNG screenshot.
+- Vision defaults to `auto`. OpenAI and Anthropic API transports receive screenshots as native multimodal input when available; CLI and agent-SDK transports fall back to text state.
+- Decisions may include `memory`, `evaluationPreviousGoal`, `nextGoal`, and `plan`. These are surfaced through `planning` events and the TUI.
+- Actions are resolved through an `ActionRegistry`. Use `createDefaultActionRegistry()` for built-ins, or pass custom `actions` to `runAgent()`.
 
 Main entry points:
 

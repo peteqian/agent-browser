@@ -622,8 +622,16 @@ describe("AgentController", () => {
       },
     });
 
-    expect(events.map((e) => e.type)).toEqual(["decision", "action", "action", "terminal"]);
-    const terminal = events[3];
+    expect(events.map((e) => e.type)).toEqual([
+      "browser_state",
+      "decision",
+      "action_start",
+      "action",
+      "action_start",
+      "action",
+      "terminal",
+    ]);
+    const terminal = events[6];
     expect(terminal?.type).toBe("terminal");
     if (terminal?.type === "terminal") {
       expect(terminal.result.reason).toBe("completed");

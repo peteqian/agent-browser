@@ -7,6 +7,7 @@ import { CDPClient } from "../cdp/client";
 import { launchBrowserFromProfile, type LaunchOptions, type LaunchedBrowser } from "../cdp/launch";
 import { BrowserProfile, type BrowserProfileInit } from "./profile";
 import { CaptchaWatchdog, type CaptchaWaitResult } from "./watchdogs/captcha";
+import { BrowserEventBus } from "./events";
 
 export type BrowserSessionState =
   | "idle"
@@ -88,6 +89,58 @@ export interface ExtractContentResult {
   };
 }
 
+interface RuntimeExceptionDetails {
+  text?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  exception?: { description?: string; value?: unknown };
+}
+
+function formatRuntimeException(details: RuntimeExceptionDetails): string {
+  const line = typeof details.lineNumber === "number" ? ` at ${details.lineNumber + 1}` : "";
+  const column = typeof details.columnNumber === "number" ? `:${details.columnNumber + 1}` : "";
+  const description =
+    details.exception?.description ??
+    (typeof details.exception?.value === "string" ? details.exception.value : undefined);
+  return `${details.text ?? "unknown error"}${line}${column}${description ? ` — ${description}` : ""}`;
+}
+
+const AD_DOMAINS = [
+  "doubleclick.net",
+  "googlesyndication.com",
+  "googletagmanager.com",
+  "facebook.net",
+  "analytics",
+  "ads",
+  "tracking",
+  "pixel",
+  "hotjar.com",
+  "clarity.ms",
+  "mixpanel.com",
+  "segment.com",
+  "demdex.net",
+  "omtrdc.net",
+  "adobedtm.com",
+  "ensighten.com",
+  "newrelic.com",
+  "nr-data.net",
+  "google-analytics.com",
+  "connect.facebook.net",
+  "platform.twitter.com",
+  "platform.linkedin.com",
+  ".cloudfront.net/image/",
+  ".akamaized.net/image/",
+  "/tracker/",
+  "/collector/",
+  "/beacon/",
+  "/telemetry/",
+  "/log/",
+  "/events/",
+  "/eventBatch",
+  "/track.",
+  "/metrics/",
+];
+
 const STEALTH_INIT_SCRIPT = `
 (() => {
   const patch = (obj, key, value) => {
@@ -113,6 +166,7 @@ const STEALTH_INIT_SCRIPT = `
 
 export class BrowserSession {
   readonly profile: BrowserProfile;
+  readonly eventBus = new BrowserEventBus();
 
   private browser: LaunchedBrowser | null = null;
   private client: CDPClient | null = null;
@@ -128,32 +182,32 @@ export class BrowserSession {
   private captchaWatchdog = new CaptchaWatchdog();
 
   constructor(options: BrowserSessionOptions = {}) {
-    const mergedProfile = new BrowserProfile({
+    const launch = options.launch;
+    this.profile = new BrowserProfile({
       ...options.profile,
-      ...(options.launch
+      ...(launch
         ? {
-            executablePath: options.launch.executablePath,
-            channel: options.launch.channel,
-            headless: options.launch.headless,
-            userDataDir: options.launch.userDataDir,
-            proxyServer: options.launch.proxyServer,
-            proxyBypass: options.launch.proxyBypass,
-            userAgent: options.launch.userAgent,
-            acceptLanguage: options.launch.acceptLanguage,
-            locale: options.launch.locale,
-            timezoneId: options.launch.timezoneId,
-            extensionPaths: options.launch.extensionPaths,
-            remoteDebuggingPort: options.launch.port,
-            docker: options.launch.docker,
-            disableSecurity: options.launch.disableSecurity,
-            extraArgs: options.launch.extraArgs,
-            maxLaunchRetries: options.launch.maxRetries,
-            autoInstallBrowser: options.launch.autoInstallBrowser,
+            executablePath: launch.executablePath,
+            channel: launch.channel,
+            headless: launch.headless,
+            userDataDir: launch.userDataDir,
+            proxyServer: launch.proxyServer,
+            proxyBypass: launch.proxyBypass,
+            userAgent: launch.userAgent,
+            acceptLanguage: launch.acceptLanguage,
+            locale: launch.locale,
+            timezoneId: launch.timezoneId,
+            extensionPaths: launch.extensionPaths,
+            remoteDebuggingPort: launch.port,
+            docker: launch.docker,
+            disableSecurity: launch.disableSecurity,
+            extraArgs: launch.extraArgs,
+            maxLaunchRetries: launch.maxRetries,
+            autoInstallBrowser: launch.autoInstallBrowser,
           }
         : {}),
       cdpUrl: options.cdpUrl ?? options.profile?.cdpUrl,
     });
-    this.profile = mergedProfile;
   }
 
   static async launch(options: LaunchOptions = {}): Promise<BrowserSession> {
@@ -173,6 +227,7 @@ export class BrowserSession {
 
   private setState(state: BrowserSessionState): void {
     this.state = state;
+    void this.eventBus.emit({ type: "browser_event", name: "state", data: { state } });
     for (const listener of this.stateListeners) {
       listener(state);
     }
@@ -228,6 +283,12 @@ export class BrowserSession {
       if (event.targetInfo.type !== "page") return;
       this.targetToSession.set(event.targetInfo.targetId, event.sessionId);
       this.sessionToTarget.set(event.sessionId, event.targetInfo.targetId);
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "target_attached",
+        targetId: event.targetInfo.targetId,
+        data: event.targetInfo,
+      });
       await this.enableDomains(event.sessionId);
     });
 
@@ -235,6 +296,12 @@ export class BrowserSession {
       const event = params as DetachedTargetEvent;
       this.sessionToTarget.delete(event.sessionId);
       this.targetToSession.delete(event.targetId);
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "target_detached",
+        targetId: event.targetId,
+        data: event,
+      });
     });
 
     client.on("Page.javascriptDialogOpening", async (params, sessionId) => {
@@ -253,6 +320,11 @@ export class BrowserSession {
       } catch {
         // ignore dialog handling errors
       }
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "javascript_dialog",
+        data: event,
+      });
     });
 
     await client.send("Target.setDiscoverTargets", { discover: true });
@@ -423,10 +495,7 @@ export class BrowserSession {
   async closePage(targetId: string): Promise<void> {
     await this.send("Target.closeTarget", { targetId });
     this.targetToSession.delete(targetId);
-    const page = this.pageCache.get(targetId);
-    if (page) {
-      this.pageCache.delete(targetId);
-    }
+    this.pageCache.delete(targetId);
   }
 
   getPage(targetId: string): Page {
@@ -454,35 +523,28 @@ export class BrowserSession {
   }
 
   async close(): Promise<void> {
-    this.intentionalStop = true;
-    this.setState("stopped");
-
-    this.client?.close();
-    this.client = null;
-
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
-
-    this.captchaWatchdog.detach();
-    this.targetToSession.clear();
-    this.sessionToTarget.clear();
-    this.pageCache.clear();
-    this.stateListeners.clear();
+    await this.dispose("stopped", (browser) => browser.close());
   }
 
   async kill(): Promise<void> {
+    await this.dispose("stopped", (browser) => browser.kill());
+  }
+
+  private async dispose(
+    finalState: BrowserSessionState,
+    closeBrowser: (browser: LaunchedBrowser) => Promise<void>,
+  ): Promise<void> {
     this.intentionalStop = true;
+    this.setState(finalState);
+
     this.client?.close();
     this.client = null;
 
     if (this.browser) {
-      await this.browser.kill();
+      await closeBrowser(this.browser);
       this.browser = null;
     }
 
-    this.setState("stopped");
     this.captchaWatchdog.detach();
     this.targetToSession.clear();
     this.sessionToTarget.clear();
@@ -622,12 +684,7 @@ export class Page {
   async evaluate<TResult = unknown>(expression: string): Promise<TResult> {
     const result = await this.session.sendToTarget<{
       result: { value?: TResult };
-      exceptionDetails?: {
-        text?: string;
-        lineNumber?: number;
-        columnNumber?: number;
-        exception?: { description?: string; value?: unknown };
-      };
+      exceptionDetails?: RuntimeExceptionDetails;
     }>(this.targetId, "Runtime.evaluate", {
       expression,
       returnByValue: true,
@@ -635,14 +692,8 @@ export class Page {
     });
 
     if (result.exceptionDetails) {
-      const details = result.exceptionDetails;
-      const line = typeof details.lineNumber === "number" ? ` at ${details.lineNumber + 1}` : "";
-      const column = typeof details.columnNumber === "number" ? `:${details.columnNumber + 1}` : "";
-      const description =
-        details.exception?.description ??
-        (typeof details.exception?.value === "string" ? details.exception.value : undefined);
       throw new Error(
-        `Runtime evaluation failed: ${details.text ?? "unknown error"}${line}${column}${description ? ` — ${description}` : ""}`,
+        `Runtime evaluation failed: ${formatRuntimeException(result.exceptionDetails)}`,
       );
     }
 
@@ -652,12 +703,7 @@ export class Page {
   async evaluateHandle(expression: string): Promise<string> {
     const result = await this.session.sendToTarget<{
       result: { objectId?: string };
-      exceptionDetails?: {
-        text?: string;
-        lineNumber?: number;
-        columnNumber?: number;
-        exception?: { description?: string; value?: unknown };
-      };
+      exceptionDetails?: RuntimeExceptionDetails;
     }>(this.targetId, "Runtime.evaluate", {
       expression,
       returnByValue: false,
@@ -665,14 +711,8 @@ export class Page {
     });
 
     if (result.exceptionDetails) {
-      const details = result.exceptionDetails;
-      const line = typeof details.lineNumber === "number" ? ` at ${details.lineNumber + 1}` : "";
-      const column = typeof details.columnNumber === "number" ? `:${details.columnNumber + 1}` : "";
-      const description =
-        details.exception?.description ??
-        (typeof details.exception?.value === "string" ? details.exception.value : undefined);
       throw new Error(
-        `Runtime evaluation handle failed: ${details.text ?? "unknown error"}${line}${column}${description ? ` — ${description}` : ""}`,
+        `Runtime evaluation handle failed: ${formatRuntimeException(result.exceptionDetails)}`,
       );
     }
 
@@ -878,15 +918,16 @@ export class Page {
     amount = 800,
     index?: number,
   ): Promise<void> {
+    const scrollBy = (axis: string) =>
+      index !== undefined
+        ? `(() => { const el = document.querySelector('[data-agent-idx="${index}"]'); if (el) el.scrollBy(0, ${axis}${amount}); })()`
+        : `window.scrollBy(0, ${axis}${amount})`;
+
     const expr =
       direction === "up"
-        ? index !== undefined
-          ? `(() => { const el = document.querySelector('[data-agent-idx="${index}"]'); if (el) el.scrollBy(0, -${amount}); })()`
-          : `window.scrollBy(0, -${amount})`
+        ? scrollBy("-")
         : direction === "down"
-          ? index !== undefined
-            ? `(() => { const el = document.querySelector('[data-agent-idx="${index}"]'); if (el) el.scrollBy(0, ${amount}); })()`
-            : `window.scrollBy(0, ${amount})`
+          ? scrollBy("")
           : direction === "top"
             ? index !== undefined
               ? `(() => { const el = document.querySelector('[data-agent-idx="${index}"]'); if (el) el.scrollTop = 0; })()`
@@ -894,6 +935,7 @@ export class Page {
             : index !== undefined
               ? `(() => { const el = document.querySelector('[data-agent-idx="${index}"]'); if (el) el.scrollTop = el.scrollHeight; })()`
               : "window.scrollTo(0, document.body.scrollHeight)";
+
     await this.evaluate(expr);
   }
 
@@ -967,17 +1009,7 @@ export class Page {
       const now = performance.now();
       const resources = performance.getEntriesByType('resource');
       const pending = [];
-      const adDomains = [
-        'doubleclick.net', 'googlesyndication.com', 'googletagmanager.com',
-        'facebook.net', 'analytics', 'ads', 'tracking', 'pixel',
-        'hotjar.com', 'clarity.ms', 'mixpanel.com', 'segment.com',
-        'demdex.net', 'omtrdc.net', 'adobedtm.com', 'ensighten.com',
-        'newrelic.com', 'nr-data.net', 'google-analytics.com',
-        'connect.facebook.net', 'platform.twitter.com', 'platform.linkedin.com',
-        '.cloudfront.net/image/', '.akamaized.net/image/',
-        '/tracker/', '/collector/', '/beacon/', '/telemetry/', '/log/',
-        '/events/', '/eventBatch', '/track.', '/metrics/'
-      ];
+      const adDomains = ${JSON.stringify(AD_DOMAINS)};
 
       for (const entry of resources) {
         if (entry.responseEnd !== 0) continue;
@@ -1377,11 +1409,7 @@ export class Page {
     };
 
     const selected = (options?.paperFormat ?? "Letter").toLowerCase();
-    const fallbackPaper = paperSizes.letter;
-    const paper = paperSizes[selected] ?? fallbackPaper;
-    if (!paper) {
-      throw new Error("Missing paper size configuration");
-    }
+    const paper = paperSizes[selected] ?? paperSizes.letter!;
     const scale = options?.scale ?? 1;
 
     const result = await this.session.sendToTarget<{ data: string }>(

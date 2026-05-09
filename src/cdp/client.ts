@@ -78,7 +78,12 @@ export class CDPClient {
   }
 
   private handleMessage(raw: string) {
-    const msg = JSON.parse(raw) as CDPMessage;
+    let msg: CDPMessage;
+    try {
+      msg = JSON.parse(raw) as CDPMessage;
+    } catch {
+      return;
+    }
 
     if (typeof msg.id === "number") {
       const pending = this.pending.get(msg.id);
@@ -165,6 +170,7 @@ export class CDPClient {
     if (this.closed) return;
     this.expectedClose = true;
     this.closed = true;
+    this.rejectPending(new Error("CDP client closed"));
     this.ws.close();
     this.eventHandlers.clear();
     this.closeHandlers.clear();
