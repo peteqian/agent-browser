@@ -30,6 +30,7 @@ export interface LaunchOptions {
   extraArgs?: string[];
   maxRetries?: number;
   autoInstallBrowser?: boolean;
+  downloadsDir?: string;
 }
 
 export interface LaunchedBrowser {
@@ -325,5 +326,6 @@ export async function launchBrowserFromProfile(profile: BrowserProfile): Promise
     extraArgs: profile.extraArgs,
     maxRetries: profile.maxLaunchRetries,
     autoInstallBrowser: profile.autoInstallBrowser,
+    downloadsDir: profile.downloadsDir,
   });
 }

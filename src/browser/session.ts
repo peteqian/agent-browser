@@ -36,6 +36,33 @@ interface DetachedTargetEvent {
 
 interface JavascriptDialogOpeningEvent {
   type?: "alert" | "confirm" | "prompt" | "beforeunload";
+  message?: string;
+  url?: string;
+  hasBrowserHandler?: boolean;
+  defaultPrompt?: string;
+}
+
+interface DownloadWillBeginEvent {
+  frameId?: string;
+  guid: string;
+  url: string;
+  suggestedFilename: string;
+}
+
+interface DownloadProgressEvent {
+  guid: string;
+  totalBytes?: number;
+  receivedBytes?: number;
+  state: "inProgress" | "completed" | "canceled";
+  filePath?: string;
+}
+
+interface DownloadInfo {
+  guid: string;
+  url: string;
+  suggestedFilename: string;
+  startedAt: string;
+  targetPath?: string;
 }
 
 export interface PendingNetworkRequest {
@@ -61,8 +88,15 @@ export interface FindElementsParams {
   includeText?: boolean;
 }
 
+export type NavigationHealthStatus = "loaded" | "timeout" | "empty" | "cdp_error";
+
 export interface NavigationHealthResult {
   ok: boolean;
+  status: NavigationHealthStatus;
+  url: string;
+  finalUrl?: string;
+  readyState?: string;
+  durationMs: number;
   warning?: string;
 }
 
@@ -103,6 +137,26 @@ function formatRuntimeException(details: RuntimeExceptionDetails): string {
     details.exception?.description ??
     (typeof details.exception?.value === "string" ? details.exception.value : undefined);
   return `${details.text ?? "unknown error"}${line}${column}${description ? ` — ${description}` : ""}`;
+}
+
+function navigationFailureStatus(message: string): NavigationHealthStatus {
+  return message.includes("Navigation timeout") ? "timeout" : "cdp_error";
+}
+
+function createJavaScriptDialogWatchdogData(event: JavascriptDialogOpeningEvent): {
+  dialogType: "alert" | "confirm" | "prompt" | "beforeunload";
+  accepted: boolean;
+  policy: "accept_non_prompt" | "dismiss_prompt";
+  event: JavascriptDialogOpeningEvent;
+} {
+  const dialogType = event.type ?? "alert";
+  const accepted = dialogType !== "prompt";
+  return {
+    dialogType,
+    accepted,
+    policy: accepted ? "accept_non_prompt" : "dismiss_prompt",
+    event,
+  };
 }
 
 const AD_DOMAINS = [
@@ -178,6 +232,7 @@ export class BrowserSession {
   private sessionToTarget = new Map<string, string>();
   private pageCache = new Map<string, Page>();
   private stateListeners = new Set<(state: BrowserSessionState) => void>();
+  private downloads = new Map<string, DownloadInfo>();
 
   private captchaWatchdog = new CaptchaWatchdog();
 
@@ -204,6 +259,7 @@ export class BrowserSession {
             extraArgs: launch.extraArgs,
             maxLaunchRetries: launch.maxRetries,
             autoInstallBrowser: launch.autoInstallBrowser,
+            downloadsDir: launch.downloadsDir,
           }
         : {}),
       cdpUrl: options.cdpUrl ?? options.profile?.cdpUrl,
@@ -269,6 +325,11 @@ export class BrowserSession {
         return;
       }
       this.setState("disconnected");
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "cdp_disconnected",
+        data: { reason: "websocket_closed", reconnectEnabled: this.profile.reconnectOnDisconnect },
+      });
       void this.reconnectIfNeeded();
     });
 
@@ -277,6 +338,53 @@ export class BrowserSession {
     if (this.profile.captchaSolver) {
       this.captchaWatchdog.attach(client);
     }
+
+    await this.configureDownloads(client);
+
+    client.on("Browser.downloadWillBegin", (params) => {
+      const event = params as DownloadWillBeginEvent;
+      const info: DownloadInfo = {
+        guid: event.guid,
+        url: event.url,
+        suggestedFilename: event.suggestedFilename,
+        startedAt: new Date().toISOString(),
+        ...(this.profile.downloadsDir
+          ? { targetPath: join(this.profile.downloadsDir, event.suggestedFilename) }
+          : {}),
+      };
+      this.downloads.set(event.guid, info);
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "download_started",
+        data: info,
+      });
+    });
+
+    client.on("Browser.downloadProgress", (params) => {
+      const event = params as DownloadProgressEvent;
+      const info = this.downloads.get(event.guid);
+      const data = {
+        guid: event.guid,
+        state: event.state,
+        totalBytes: event.totalBytes,
+        receivedBytes: event.receivedBytes,
+        url: info?.url,
+        suggestedFilename: info?.suggestedFilename,
+        path: event.filePath ?? info?.targetPath,
+      };
+
+      if (event.state === "inProgress") {
+        void this.eventBus.emit({ type: "browser_event", name: "download_progress", data });
+        return;
+      }
+
+      this.downloads.delete(event.guid);
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: event.state === "completed" ? "download_completed" : "download_failed",
+        data,
+      });
+    });
 
     client.on("Target.attachedToTarget", async (params) => {
       const event = params as AttachedTargetEvent;
@@ -307,13 +415,13 @@ export class BrowserSession {
     client.on("Page.javascriptDialogOpening", async (params, sessionId) => {
       if (!sessionId) return;
       const event = (params ?? {}) as JavascriptDialogOpeningEvent;
-      const dialogType = event.type ?? "alert";
-      const shouldAccept = dialogType !== "prompt";
+      const targetId = this.sessionToTarget.get(sessionId);
+      const data = createJavaScriptDialogWatchdogData(event);
       try {
         await client.send(
           "Page.handleJavaScriptDialog",
           {
-            accept: shouldAccept,
+            accept: data.accepted,
           },
           sessionId,
         );
@@ -323,7 +431,8 @@ export class BrowserSession {
       void this.eventBus.emit({
         type: "browser_event",
         name: "javascript_dialog",
-        data: event,
+        targetId,
+        data,
       });
     });
 
@@ -335,6 +444,29 @@ export class BrowserSession {
     });
 
     await this.attachExistingPages();
+  }
+
+  private async configureDownloads(client: CDPClient): Promise<void> {
+    if (!this.profile.downloadsDir) return;
+    mkdirSync(this.profile.downloadsDir, { recursive: true });
+    try {
+      await client.send("Browser.setDownloadBehavior", {
+        behavior: "allow",
+        downloadPath: this.profile.downloadsDir,
+        eventsEnabled: true,
+      });
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "download_watchdog_enabled",
+        data: { downloadsDir: this.profile.downloadsDir },
+      });
+    } catch (error) {
+      void this.eventBus.emit({
+        type: "browser_error",
+        message: "Failed to enable download watchdog",
+        error,
+      });
+    }
   }
 
   private async attachExistingPages(): Promise<void> {
@@ -352,17 +484,43 @@ export class BrowserSession {
   }
 
   private async reconnectIfNeeded(): Promise<void> {
-    if (this.reconnecting || !this.profile.reconnectOnDisconnect || this.intentionalStop) {
+    if (this.intentionalStop || this.reconnecting) {
+      return;
+    }
+
+    if (!this.profile.reconnectOnDisconnect) {
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "cdp_reconnect_failed",
+        data: { reason: "reconnect_disabled", maxAttempts: this.profile.reconnectMaxAttempts },
+      });
       return;
     }
 
     this.reconnecting = true;
     this.setState("reconnecting");
+    void this.eventBus.emit({
+      type: "browser_event",
+      name: "cdp_reconnect_started",
+      data: {
+        maxAttempts: this.profile.reconnectMaxAttempts,
+        managedLocal: this.profile.isManagedLocal(),
+      },
+    });
 
     try {
       let attempt = 0;
       while (attempt < this.profile.reconnectMaxAttempts && !this.intentionalStop) {
         attempt += 1;
+        void this.eventBus.emit({
+          type: "browser_event",
+          name: "cdp_reconnect_attempt",
+          data: {
+            attempt,
+            maxAttempts: this.profile.reconnectMaxAttempts,
+            managedLocal: this.profile.isManagedLocal(),
+          },
+        });
 
         if (this.profile.isManagedLocal()) {
           const browserStillAlive = this.browser?.process.exitCode === null;
@@ -374,17 +532,37 @@ export class BrowserSession {
         try {
           await this.connectToEndpoint(this.getSocketUrl());
           this.setState("connected");
+          void this.eventBus.emit({
+            type: "browser_event",
+            name: "cdp_reconnected",
+            data: { attempt, maxAttempts: this.profile.reconnectMaxAttempts },
+          });
           return;
-        } catch {
+        } catch (error) {
           const backoff = Math.min(
             this.profile.reconnectMaxDelayMs,
             this.profile.reconnectBaseDelayMs * 2 ** (attempt - 1),
           );
+          void this.eventBus.emit({
+            type: "browser_event",
+            name: "cdp_reconnect_attempt_failed",
+            data: {
+              attempt,
+              maxAttempts: this.profile.reconnectMaxAttempts,
+              backoffMs: backoff,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
           await delay(backoff);
         }
       }
 
       this.setState("disconnected");
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "cdp_reconnect_failed",
+        data: { reason: "max_attempts_exhausted", maxAttempts: this.profile.reconnectMaxAttempts },
+      });
       if (this.browser) {
         await this.browser.close().catch(() => {});
         this.browser = null;
@@ -549,6 +727,7 @@ export class BrowserSession {
     this.targetToSession.clear();
     this.sessionToTarget.clear();
     this.pageCache.clear();
+    this.downloads.clear();
     this.stateListeners.clear();
   }
 }
@@ -644,41 +823,118 @@ export class Page {
         'a,button,input,select,textarea,[role="button"],[role="link"],[tabindex]'
       ).length;
 
-      return !hasText && interactive === 0;
+      const meaningfulMedia = body.querySelectorAll('img,video,canvas,svg,iframe,embed,object').length;
+
+      return !hasText && interactive === 0 && meaningfulMedia === 0;
     })()`);
   }
 
   async navigateWithHealthCheck(url: string): Promise<NavigationHealthResult> {
-    await this.goto(url);
+    const startedAt = Date.now();
+    try {
+      await this.goto(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.finishNavigationHealth({
+        ok: false,
+        status: navigationFailureStatus(message),
+        url,
+        startedAt,
+        warning: message,
+      });
+    }
 
     const isHttp = url.startsWith("http://") || url.startsWith("https://");
     if (!isHttp) {
-      return { ok: true };
+      return this.finishNavigationHealth({
+        ok: true,
+        status: "loaded",
+        url,
+        startedAt,
+      });
     }
 
     let empty = await this.appearsEmptyPage().catch(() => false);
     if (!empty) {
-      return { ok: true };
+      return this.finishNavigationHealth({
+        ok: true,
+        status: "loaded",
+        url,
+        startedAt,
+      });
     }
 
     await delay(3_000);
     empty = await this.appearsEmptyPage().catch(() => false);
     if (!empty) {
-      return { ok: true };
+      return this.finishNavigationHealth({
+        ok: true,
+        status: "loaded",
+        url,
+        startedAt,
+      });
     }
 
-    await this.goto(url);
+    try {
+      await this.goto(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.finishNavigationHealth({
+        ok: false,
+        status: navigationFailureStatus(message),
+        url,
+        startedAt,
+        warning: message,
+      });
+    }
     await delay(5_000);
     empty = await this.appearsEmptyPage().catch(() => false);
     if (empty) {
-      return {
+      return this.finishNavigationHealth({
         ok: false,
+        status: "empty",
+        url,
+        startedAt,
         warning:
           "Page loaded but returned empty content. It may require anti-bot measures, failed JavaScript rendering, or have connection/proxy issues.",
-      };
+      });
     }
 
-    return { ok: true };
+    return this.finishNavigationHealth({
+      ok: true,
+      status: "loaded",
+      url,
+      startedAt,
+    });
+  }
+
+  private async finishNavigationHealth(input: {
+    ok: boolean;
+    status: NavigationHealthStatus;
+    url: string;
+    startedAt: number;
+    warning?: string;
+  }): Promise<NavigationHealthResult> {
+    const result: NavigationHealthResult = {
+      ok: input.ok,
+      status: input.status,
+      url: input.url,
+      finalUrl: await this.currentUrl().catch(() => undefined),
+      readyState: await this.evaluate<string>("document.readyState").catch(() => undefined),
+      durationMs: Date.now() - input.startedAt,
+      ...(input.warning ? { warning: input.warning } : {}),
+    };
+    await this.emitNavigationWatchdog(result);
+    return result;
+  }
+
+  private async emitNavigationWatchdog(result: NavigationHealthResult): Promise<void> {
+    await this.session.eventBus.emit({
+      type: "browser_event",
+      name: "navigation_watchdog",
+      targetId: this.targetId,
+      data: result,
+    });
   }
 
   async evaluate<TResult = unknown>(expression: string): Promise<TResult> {

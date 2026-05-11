@@ -1,6 +1,6 @@
 # Action Registry
 
-Status: BACKLOG. Skip unless replacing fixed actions with registry-based built-ins or custom actions.
+Status: PARTIAL. Built-in and custom action registration exists; remaining work is safer action semantics and page-specific filtering.
 
 ## Goal
 
@@ -29,8 +29,15 @@ Move from a fixed action surface to a registry that can expose built-ins, custom
 - Action result metadata for coordinates, downloads, and new tabs.
 - Optional coordinate click support behind an explicit option.
 
+## Completed
+
+- Built-in actions are registered through `ActionRegistry`.
+- Custom actions can be provided through `AgentOptions.actions`.
+- Invalid action params fail schema parsing before CDP execution.
+
 ## Acceptance Criteria
 
-- Built-ins remain available through current entry points.
-- Custom actions can be registered without editing the agent loop.
-- Invalid action params fail with typed errors before CDP execution.
+- [x] Built-ins remain available through current entry points.
+- [x] Custom actions can be registered without editing the agent loop.
+- [x] Invalid action params fail before CDP execution.
+- Page-specific filtering prevents unavailable actions from entering prompts.

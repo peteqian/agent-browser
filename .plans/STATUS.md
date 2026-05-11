@@ -13,9 +13,9 @@ Read this file first. It is the compact routing table for the deeper plan files.
 
 ## Current Focus
 
-- `01-agent-loop/01-loop-resilience.md`: core loop resilience is done; revisit only for regressions or new runtime requirements.
-- `04-interfaces/01-cli.md`: CLI now has `--verbose`; future work should keep diagnostics JSONL on stderr.
-- `05-quality/01-testing-strategy.md`: add focused tests when runtime behavior becomes stable enough for automation.
+- `HIGH-VALUE-FEATURES.md`: dependency-ordered roadmap for the highest-value functionality gaps.
+- `02-browser-runtime/02-watchdogs.md`: active navigation watchdog slice; runtime reliability should precede DOM/action/extraction expansion.
+- `05-quality/01-testing-strategy.md`: add focused watchdog tests with each runtime/action feature slice.
 
 ## Done
 
@@ -35,6 +35,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 
 ## Skip Unless Relevant
 
+- `HIGH-VALUE-FEATURES.md`: read when choosing roadmap order or prioritizing browser-use parity gaps.
 - `00-foundation/01-scope-and-boundaries.md`: stable unless changing package direction or non-goals.
 - `00-foundation/02-contracts-and-configuration.md`: load when changing public contracts or options.
 - `03-dom-and-actions/03-extraction-and-structured-output.md`: load when changing extraction or typed final output.
@@ -43,11 +44,13 @@ Read this file first. It is the compact routing table for the deeper plan files.
 
 ## Backlog
 
-- DOM snapshot enrichment budgets.
-- Action registry for built-ins and custom actions.
-- Message compaction.
-- Local watchdogs.
-- Local artifacts and replay exports.
+- Layer 1: local watchdogs for navigation, crash/dead websocket, popup/dialog, downloads, storage state, and permissions.
+- Layer 2: CDP DOMSnapshot + accessibility tree enrichment with stable selector maps and prompt budgets.
+- Layer 3: safer click/type/upload semantics, new-tab detection, coordinate scaling, and page-specific action filtering.
+- Layer 4: clean markdown extraction, structure-aware chunking, schema extraction, extraction LLM hook, and pagination dedupe.
+- Layer 5: loop nudges, opt-in strict loop stopping, message compaction, persistent run memory, and optional final judge.
+- Layer 6: MCP session cleanup/artifacts and examples for extraction, downloads, upload, storage state, and MCP.
+- Layer 7: browser integration fixture pages, local diagnostics, and privacy/redaction tests.
 
 ## Non-Goals
 

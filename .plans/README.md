@@ -15,6 +15,7 @@ Numbered paths define order of precedence. Lower numbers are more foundational a
 ## Plan Order
 
 - `STATUS.md`: read this first. It says what is done, what is active, and which deeper files can be skipped.
+- `HIGH-VALUE-FEATURES.md`: dependency-ordered feature hierarchy derived from the browser-use functionality comparison.
 - `00-foundation/`: package boundaries, contracts, configuration, and principles.
 - `01-agent-loop/`: planning, memory, message compaction, judging, and loop detection.
 - `02-browser-runtime/`: local browser sessions, watchdogs, lifecycle resilience, storage, downloads, and recording.
@@ -41,6 +42,7 @@ Read `STATUS.md` first. If a section is marked `DONE`, do not load the detailed 
 
 ## Current Slice
 
-- Strengthen typed terminal output and CLI observability.
+- Use `HIGH-VALUE-FEATURES.md` to choose slices by dependency order.
+- Prioritize local browser runtime reliability before deeper DOM/action/extraction work.
 - Keep browser control based on raw Chrome DevTools Protocol.
 - Preserve local-only defaults and avoid external telemetry.

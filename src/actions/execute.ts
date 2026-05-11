@@ -138,16 +138,22 @@ export async function executeAction(
         const health = await targetPage.navigateWithHealthCheck(action.params.url);
         if (!health.ok) {
           const warning =
-            `Navigated to ${action.params.url}, but page appears empty. ${health.warning ?? ""}`.trim();
+            health.status === "empty"
+              ? `Navigated to ${action.params.url}, but page appears empty. ${health.warning ?? ""}`.trim()
+              : `Navigation to ${action.params.url} reported ${health.status}. ${health.warning ?? ""}`.trim();
           return fail(warning, {
             longTermMemory: `Navigation warning for ${action.params.url}`,
+            data: { navigation: health },
             activeTargetId: newTab ? targetPage.targetId : undefined,
           });
         }
         const memory = newTab
           ? `Opened new tab and navigated to ${action.params.url}`
           : `Navigated to ${action.params.url}`;
-        return ok(memory, { activeTargetId: newTab ? targetPage.targetId : undefined });
+        return ok(memory, {
+          data: { navigation: health },
+          activeTargetId: newTab ? targetPage.targetId : undefined,
+        });
       }
 
       case "click": {

@@ -159,13 +159,14 @@ async function runAgentInner<TData = unknown>(
     throw new Error("No page available — provide options.page or options.session.");
   }
 
-  if (options.startUrl) {
-    await page.goto(options.startUrl);
-  }
-
   const unsubscribeBrowserEvents = session?.eventBus?.on((event) =>
     emitEvent(options, { type: "browser_event", event }),
   );
+
+  if (options.startUrl) {
+    await page.navigateWithHealthCheck(options.startUrl);
+  }
+
   const actionHistory: Array<{ action: string; result: string }> = [];
   const loopFingerprints: string[] = [];
   let consecutiveFailures = 0;

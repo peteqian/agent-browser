@@ -8,16 +8,16 @@ Implement expansion in thin vertical slices.
 
 ## Sequence
 
-1. Stabilize contracts and options. In progress: terminal result data now preserves explicit `done.data`, removes job-specific default leakage, and supports zod-validated typed output.
-2. Add action timeouts and typed action failures.
-3. Add loop detection and page fingerprints.
-4. Add DOM snapshot enrichment budgets.
-5. Add action registry for built-ins.
-6. Add message compaction.
-7. Add local watchdogs one at a time.
-8. Add structured extraction outputs.
-9. Expand CLI and MCP around shared runtime.
-10. Add local artifacts and replay exports.
+Use `../HIGH-VALUE-FEATURES.md` for the canonical dependency hierarchy. Implement in thin slices in this order:
+
+1. Preserve local-first scope and public contract boundaries.
+2. Add browser runtime reliability: navigation, crash/dead-websocket, popup/dialog, download, storage, and permission watchdogs.
+3. Add DOM snapshot enrichment: CDP DOMSnapshot, accessibility labels, selector maps, CSS-pixel coordinates, iframe/shadow summaries, and prompt budgets.
+4. Upgrade action semantics: safer click/type/upload, new-tab detection, coordinate scaling, and page-specific action filtering.
+5. Upgrade extraction: clean markdown, structure-aware chunking, schema extraction, extraction LLM hook, and pagination dedupe.
+6. Improve agent reasoning: loop nudges, opt-in strict loop stop, message compaction, run memory, max-step `done` forcing, and optional final judge.
+7. Expand interfaces only around stable runtime features: MCP session cleanup/artifacts, CLI ergonomics, and examples.
+8. Add quality gates throughout: fixture-page browser tests, local JSONL diagnostics, performance budgets, and privacy/redaction checks.
 
 ## Stop Criteria
 

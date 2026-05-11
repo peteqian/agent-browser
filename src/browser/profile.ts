@@ -24,6 +24,7 @@ export interface BrowserProfileInit {
   reconnectBaseDelayMs?: number;
   reconnectMaxDelayMs?: number;
   captchaSolver?: boolean;
+  downloadsDir?: string;
 }
 
 export class BrowserProfile {
@@ -50,6 +51,7 @@ export class BrowserProfile {
   reconnectBaseDelayMs: number;
   reconnectMaxDelayMs: number;
   captchaSolver: boolean;
+  downloadsDir: string | undefined;
 
   constructor(init: BrowserProfileInit = {}) {
     this.cdpUrl = init.cdpUrl;
@@ -75,6 +77,7 @@ export class BrowserProfile {
     this.reconnectBaseDelayMs = init.reconnectBaseDelayMs ?? 500;
     this.reconnectMaxDelayMs = init.reconnectMaxDelayMs ?? 8_000;
     this.captchaSolver = init.captchaSolver ?? true;
+    this.downloadsDir = init.downloadsDir;
   }
 
   isRemoteConnection(): boolean {
