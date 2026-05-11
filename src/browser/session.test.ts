@@ -200,7 +200,11 @@ describe("BrowserSession permissions watchdog", () => {
       },
     };
 
-    await session.configurePermissions(client as never);
+    await (
+      session as unknown as {
+        configurePermissions: (client: unknown) => Promise<void>;
+      }
+    ).configurePermissions(client);
 
     expect(commands).toEqual([
       {
@@ -226,7 +230,11 @@ describe("BrowserSession permissions watchdog", () => {
       },
     };
 
-    await session.configurePermissions(client as never);
+    await (
+      session as unknown as {
+        configurePermissions: (client: unknown) => Promise<void>;
+      }
+    ).configurePermissions(client);
 
     expect(session.eventBus.history).toContainEqual({
       type: "browser_event",

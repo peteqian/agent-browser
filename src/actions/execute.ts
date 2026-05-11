@@ -257,7 +257,9 @@ export async function executeAction(
         if (action.params.url) {
           const health = await tab.navigateWithHealthCheck(action.params.url);
           if (!health.ok) {
-            return fail(`Opened new tab, but navigation to ${action.params.url} reported ${health.status}. ${health.warning ?? ""}`.trim(), {
+            const warning =
+              `Opened new tab, but navigation to ${action.params.url} reported ${health.status}. ${health.warning ?? ""}`.trim();
+            return fail(warning, {
               data: { navigation: health },
               activeTargetId: tab.targetId,
             });

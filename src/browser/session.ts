@@ -405,10 +405,10 @@ export class BrowserSession {
     client.on("Target.attachedToTarget", (params) => {
       const event = params as AttachedTargetEvent;
       if (event.targetInfo.type !== "page") return;
+      this.targetToSession.set(event.targetInfo.targetId, event.sessionId);
+      this.sessionToTarget.set(event.sessionId, event.targetInfo.targetId);
       void this.enableDomains(event.sessionId)
         .then(() => {
-          this.targetToSession.set(event.targetInfo.targetId, event.sessionId);
-          this.sessionToTarget.set(event.sessionId, event.targetInfo.targetId);
           void this.eventBus.emit({
             type: "browser_event",
             name: "target_attached",
@@ -417,6 +417,8 @@ export class BrowserSession {
           });
         })
         .catch((error) => {
+          this.targetToSession.delete(event.targetInfo.targetId);
+          this.sessionToTarget.delete(event.sessionId);
           if (this.intentionalStop) return;
           void this.eventBus.emit({
             type: "browser_error",
@@ -496,7 +498,7 @@ export class BrowserSession {
     }
   }
 
-  async configurePermissions(client: CDPClient): Promise<void> {
+  private async configurePermissions(client: CDPClient): Promise<void> {
     for (const grant of this.profile.permissionGrants) {
       if (grant.permissions.length === 0) continue;
 

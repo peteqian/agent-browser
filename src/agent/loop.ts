@@ -153,34 +153,36 @@ async function runAgentInner<TData = unknown>(
   const session =
     options.session ??
     (ownsSession ? await BrowserSession.launch(options.launch ?? {}) : undefined);
-  let page = options.page ?? (session ? await session.newPage() : undefined);
-
-  if (!page) {
-    throw new Error("No page available — provide options.page or options.session.");
-  }
-
-  const unsubscribeBrowserEvents = session?.eventBus?.on((event) =>
-    emitEvent(options, { type: "browser_event", event }),
-  );
-
-  if (options.startUrl) {
-    const health = await page.navigateWithHealthCheck(options.startUrl);
-    if (!health.ok) {
-      return {
-        success: false,
-        reason: "failed",
-        summary: `Start URL navigation failed: ${health.warning ?? health.status}`,
-        data: null,
-        steps: 0,
-      };
-    }
-  }
+  let unsubscribeBrowserEvents: (() => void) | undefined;
 
   const actionHistory: Array<{ action: string; result: string }> = [];
   const loopFingerprints: string[] = [];
   let consecutiveFailures = 0;
 
   try {
+    let page = options.page ?? (session ? await session.newPage() : undefined);
+
+    if (!page) {
+      throw new Error("No page available — provide options.page or options.session.");
+    }
+
+    unsubscribeBrowserEvents = session?.eventBus?.on((event) =>
+      emitEvent(options, { type: "browser_event", event }),
+    );
+
+    if (options.startUrl) {
+      const health = await page.navigateWithHealthCheck(options.startUrl);
+      if (!health.ok) {
+        return {
+          success: false,
+          reason: "failed",
+          summary: `Start URL navigation failed: ${health.warning ?? health.status}`,
+          data: null,
+          steps: 0,
+        };
+      }
+    }
+
     for (let step = 1; step <= maxSteps; step++) {
       const beforeStepInterrupt = await checkInterrupt(options, step - 1);
       if (beforeStepInterrupt) return beforeStepInterrupt;
@@ -636,9 +638,9 @@ async function executeActionWithTimeout(
 }
 
 /**
- * Returns a single AbortSignal that fires when any of the given signals fires.
- * Returns undefined when all inputs are undefined to avoid allocating a
- * controller for the common case.
+ * Returns a signal that aborts when any input signal aborts, plus a cleanup
+ * callback for listener removal. Avoids allocating a controller when there are
+ * zero or one input signals.
  */
 function combineSignals(...signals: Array<AbortSignal | undefined>): {
   signal: AbortSignal | undefined;
