@@ -32,6 +32,8 @@ export interface LaunchOptions {
   autoInstallBrowser?: boolean;
   downloadsDir?: string;
   permissionGrants?: BrowserPermissionGrant[];
+  storageStatePath?: string;
+  saveStorageStateOnClose?: boolean;
 }
 
 export interface LaunchedBrowser {
@@ -328,5 +330,7 @@ export async function launchBrowserFromProfile(profile: BrowserProfile): Promise
     maxRetries: profile.maxLaunchRetries,
     autoInstallBrowser: profile.autoInstallBrowser,
     downloadsDir: profile.downloadsDir,
+    storageStatePath: profile.storageStatePath,
+    saveStorageStateOnClose: profile.saveStorageStateOnClose,
   });
 }

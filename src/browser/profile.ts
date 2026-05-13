@@ -34,6 +34,8 @@ export interface BrowserProfileInit {
   captchaSolver?: boolean;
   downloadsDir?: string;
   permissionGrants?: BrowserPermissionGrant[];
+  storageStatePath?: string;
+  saveStorageStateOnClose?: boolean;
 }
 
 export class BrowserProfile {
@@ -62,6 +64,8 @@ export class BrowserProfile {
   captchaSolver: boolean;
   downloadsDir: string | undefined;
   permissionGrants: BrowserPermissionGrant[];
+  storageStatePath: string | undefined;
+  saveStorageStateOnClose: boolean;
 
   constructor(init: BrowserProfileInit = {}) {
     this.cdpUrl = init.cdpUrl;
@@ -93,6 +97,8 @@ export class BrowserProfile {
         ...grant,
         permissions: [...grant.permissions],
       })) ?? [];
+    this.storageStatePath = init.storageStatePath;
+    this.saveStorageStateOnClose = init.saveStorageStateOnClose ?? Boolean(init.storageStatePath);
   }
 
   isRemoteConnection(): boolean {

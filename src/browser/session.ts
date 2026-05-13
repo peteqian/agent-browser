@@ -8,6 +8,15 @@ import { launchBrowserFromProfile, type LaunchOptions, type LaunchedBrowser } fr
 import { BrowserProfile, type BrowserProfileInit } from "./profile";
 import { CaptchaWatchdog, type CaptchaWaitResult } from "./watchdogs/captcha";
 import { BrowserEventBus } from "./events";
+import {
+  buildLocalStorageRestoreScript,
+  cookieToParam,
+  createEmptyStorageState,
+  readStorageStateFile,
+  writeStorageStateFile,
+  type BrowserOriginStorageState,
+  type BrowserStorageState,
+} from "./storage-state";
 
 export type BrowserSessionState =
   | "idle"
@@ -244,9 +253,11 @@ export class BrowserSession {
 
   private targetToSession = new Map<string, string>();
   private sessionToTarget = new Map<string, string>();
+  private targetEnablePromises = new Map<string, Promise<void>>();
   private pageCache = new Map<string, Page>();
   private stateListeners = new Set<(state: BrowserSessionState) => void>();
   private downloads = new Map<string, DownloadInfo>();
+  private loadedStorageState: BrowserStorageState | null = null;
 
   private captchaWatchdog = new CaptchaWatchdog();
 
@@ -275,6 +286,9 @@ export class BrowserSession {
             autoInstallBrowser: launch.autoInstallBrowser,
             downloadsDir: launch.downloadsDir,
             permissionGrants: launch.permissionGrants ?? options.profile?.permissionGrants,
+            storageStatePath: launch.storageStatePath ?? options.profile?.storageStatePath,
+            saveStorageStateOnClose:
+              launch.saveStorageStateOnClose ?? options.profile?.saveStorageStateOnClose,
           }
         : {}),
       cdpUrl: options.cdpUrl ?? options.profile?.cdpUrl,
@@ -354,6 +368,7 @@ export class BrowserSession {
       this.captchaWatchdog.attach(client);
     }
 
+    await this.loadStorageState(client);
     await this.configurePermissions(client);
     await this.configureDownloads(client);
 
@@ -407,7 +422,7 @@ export class BrowserSession {
       if (event.targetInfo.type !== "page") return;
       this.targetToSession.set(event.targetInfo.targetId, event.sessionId);
       this.sessionToTarget.set(event.sessionId, event.targetInfo.targetId);
-      void this.enableDomains(event.sessionId)
+      const enablePromise = this.enableDomains(event.sessionId)
         .then(() => {
           void this.eventBus.emit({
             type: "browser_event",
@@ -426,13 +441,18 @@ export class BrowserSession {
             targetId: event.targetInfo.targetId,
             error,
           });
+        })
+        .finally(() => {
+          this.targetEnablePromises.delete(event.targetInfo.targetId);
         });
+      this.targetEnablePromises.set(event.targetInfo.targetId, enablePromise);
     });
 
     client.on("Target.detachedFromTarget", (params) => {
       const event = params as DetachedTargetEvent;
       this.sessionToTarget.delete(event.sessionId);
       this.targetToSession.delete(event.targetId);
+      this.targetEnablePromises.delete(event.targetId);
       void this.eventBus.emit({
         type: "browser_event",
         name: "target_detached",
@@ -493,6 +513,56 @@ export class BrowserSession {
       void this.eventBus.emit({
         type: "browser_error",
         message: "Failed to enable download watchdog",
+        error,
+      });
+    }
+  }
+
+  private async loadStorageState(client: CDPClient): Promise<void> {
+    if (!this.profile.storageStatePath) return;
+    try {
+      const state = await readStorageStateFile(this.profile.storageStatePath);
+      this.loadedStorageState = state;
+      if (!state) {
+        void this.eventBus.emit({
+          type: "browser_event",
+          name: "storage_state_missing",
+          data: {
+            path: this.profile.storageStatePath,
+          },
+        });
+        return;
+      }
+
+      if (state.cookies.length > 0) {
+        await client.send("Storage.setCookies", {
+          cookies: state.cookies.map(cookieToParam),
+        });
+      }
+
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "storage_state_loaded",
+        data: {
+          path: this.profile.storageStatePath,
+          cookieCount: state.cookies.length,
+          originCount: state.origins.length,
+          origins: state.origins.map((origin) => origin.origin),
+        },
+      });
+    } catch (error) {
+      void this.eventBus.emit({
+        type: "browser_event",
+        name: "storage_state_failed",
+        data: {
+          path: this.profile.storageStatePath,
+          operation: "load",
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      void this.eventBus.emit({
+        type: "browser_error",
+        message: "Failed to load storage state",
         error,
       });
     }
@@ -640,6 +710,14 @@ export class BrowserSession {
   private async enableDomains(sessionId: string): Promise<void> {
     const client = this.ensureClient();
     await client.send("Page.enable", {}, sessionId);
+    const storageScript = buildLocalStorageRestoreScript(this.loadedStorageState?.origins ?? []);
+    if (storageScript) {
+      await client.send(
+        "Page.addScriptToEvaluateOnNewDocument",
+        { source: storageScript },
+        sessionId,
+      );
+    }
     await client.send(
       "Page.addScriptToEvaluateOnNewDocument",
       { source: STEALTH_INIT_SCRIPT },
@@ -686,7 +764,11 @@ export class BrowserSession {
       targetId,
       flatten: true,
     });
-    await this.enableDomains(sessionId);
+    const enablePromise = this.enableDomains(sessionId).finally(() => {
+      this.targetEnablePromises.delete(targetId);
+    });
+    this.targetEnablePromises.set(targetId, enablePromise);
+    await enablePromise;
     this.targetToSession.set(targetId, sessionId);
     this.sessionToTarget.set(sessionId, targetId);
     return sessionId;
@@ -694,7 +776,14 @@ export class BrowserSession {
 
   private async getOrAttachSessionId(targetId: string): Promise<string> {
     const current = this.targetToSession.get(targetId);
-    if (current) return current;
+    if (current) {
+      await this.targetEnablePromises.get(targetId);
+      const recheck = this.targetToSession.get(targetId);
+      if (!recheck) {
+        throw new Error(`Target ${targetId} is no longer available after domain enable failed`);
+      }
+      return recheck;
+    }
     return this.attachTarget(targetId);
   }
 
@@ -740,6 +829,7 @@ export class BrowserSession {
     await this.send("Target.closeTarget", { targetId });
     this.targetToSession.delete(targetId);
     if (sessionId) this.sessionToTarget.delete(sessionId);
+    this.targetEnablePromises.delete(targetId);
     this.pageCache.delete(targetId);
   }
 
@@ -782,6 +872,28 @@ export class BrowserSession {
     this.intentionalStop = true;
     this.setState(finalState);
 
+    if (this.profile.storageStatePath && this.profile.saveStorageStateOnClose && this.client) {
+      try {
+        await this.saveStorageState();
+      } catch (error) {
+        void this.eventBus.emit({
+          type: "browser_event",
+          name: "storage_state_failed",
+          data: {
+            path: this.profile.storageStatePath,
+            operation: "save",
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+        void this.eventBus.emit({
+          type: "browser_error",
+          message: "Failed to save storage state",
+          error,
+        });
+        throw error;
+      }
+    }
+
     this.client?.close();
     this.client = null;
 
@@ -793,9 +905,56 @@ export class BrowserSession {
     this.captchaWatchdog.detach();
     this.targetToSession.clear();
     this.sessionToTarget.clear();
+    this.targetEnablePromises.clear();
     this.pageCache.clear();
     this.downloads.clear();
+    this.loadedStorageState = null;
     this.stateListeners.clear();
+  }
+
+  private async saveStorageState(): Promise<void> {
+    if (!this.profile.storageStatePath) return;
+    const client = this.ensureClient();
+    const cookiesResponse = await client.send<{ cookies?: BrowserStorageState["cookies"] }>(
+      "Storage.getCookies",
+    );
+    const collected = await this.collectOpenOriginStorage();
+    const mergedOrigins = new Map<string, BrowserOriginStorageState>();
+    for (const origin of this.loadedStorageState?.origins ?? []) {
+      mergedOrigins.set(origin.origin, origin);
+    }
+    for (const origin of collected) {
+      mergedOrigins.set(origin.origin, origin);
+    }
+    const state: BrowserStorageState = {
+      ...createEmptyStorageState(),
+      cookies: cookiesResponse.cookies ?? [],
+      origins: Array.from(mergedOrigins.values()),
+    };
+    await writeStorageStateFile(this.profile.storageStatePath, state);
+    void this.eventBus.emit({
+      type: "browser_event",
+      name: "storage_state_saved",
+      data: {
+        path: this.profile.storageStatePath,
+        cookieCount: state.cookies.length,
+        originCount: state.origins.length,
+        origins: state.origins.map((origin) => origin.origin),
+      },
+    });
+  }
+
+  private async collectOpenOriginStorage(): Promise<BrowserOriginStorageState[]> {
+    const pages = await this.listPages().catch(() => []);
+    const byOrigin = new Map<string, BrowserOriginStorageState>();
+    for (const page of pages) {
+      const origin = await page.origin().catch(() => undefined);
+      if (!origin || origin === "null" || byOrigin.has(origin)) continue;
+      const localStorage = await page.readLocalStorage().catch(() => undefined);
+      if (!localStorage) continue;
+      byOrigin.set(origin, { origin, localStorage });
+    }
+    return Array.from(byOrigin.values());
   }
 }
 
@@ -1028,6 +1187,22 @@ export class Page {
     }
 
     return result.result.value as TResult;
+  }
+
+  async origin(): Promise<string> {
+    return this.evaluate<string>("location.origin");
+  }
+
+  async readLocalStorage(): Promise<Record<string, string>> {
+    return this.evaluate<Record<string, string>>(`(() => {
+      const values = {};
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key == null) continue;
+        values[key] = localStorage.getItem(key) ?? "";
+      }
+      return values;
+    })()`);
   }
 
   async evaluateHandle(expression: string): Promise<string> {

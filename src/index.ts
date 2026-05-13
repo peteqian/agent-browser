@@ -9,8 +9,14 @@
 export { BrowserSession, Page } from "./browser/session";
 export type { NavigationHealthResult, NavigationHealthStatus } from "./browser/session";
 export type { BrowserPermission, BrowserPermissionGrant } from "./browser/profile";
+export type { BrowserOriginStorageState, BrowserStorageState } from "./browser/storage-state";
 export { captureBrowserState } from "./browser/state";
-export type { BrowserStateSummary, BrowserStateOptions, ScreenshotState, TabState } from "./browser/state";
+export type {
+  BrowserStateSummary,
+  BrowserStateOptions,
+  ScreenshotState,
+  TabState,
+} from "./browser/state";
 export { BrowserEventBus } from "./browser/events";
 export type { BrowserEvent, BrowserEventHandler } from "./browser/events";
 

@@ -9,8 +9,13 @@ export { launchBrowser } from "./cdp/launch";
 export type { LaunchOptions, LaunchedBrowser } from "./cdp/launch";
 
 export { BrowserProfile } from "./browser/profile";
-export type { BrowserPermission, BrowserPermissionGrant, BrowserProfileInit } from "./browser/profile";
+export type {
+  BrowserPermission,
+  BrowserPermissionGrant,
+  BrowserProfileInit,
+} from "./browser/profile";
 export type { NavigationHealthResult, NavigationHealthStatus } from "./browser/session";
+export type { BrowserOriginStorageState, BrowserStorageState } from "./browser/storage-state";
 
 export { serializePage, formatSnapshotForLLM } from "./dom/serialize";
 export type { ElementInfo, ElementBBox, PageSnapshot } from "./dom/types";

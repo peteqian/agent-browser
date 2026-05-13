@@ -166,7 +166,10 @@ describe("BrowserSession permissions watchdog", () => {
     const permissionGrants: BrowserPermissionGrant[] = [
       { origin: "https://example.com", permissions: ["geolocation"] },
     ];
-    const session = new BrowserSession({ profile: { permissionGrants }, launch: { headless: true } });
+    const session = new BrowserSession({
+      profile: { permissionGrants },
+      launch: { headless: true },
+    });
 
     expect(session.profile.permissionGrants).toEqual(permissionGrants);
   });
@@ -246,5 +249,24 @@ describe("BrowserSession permissions watchdog", () => {
       message: "Failed to configure permission grants",
       error,
     });
+  });
+});
+
+describe("BrowserSession storage state config", () => {
+  test("maps launch storage state options into the profile", () => {
+    const session = new BrowserSession({
+      launch: { storageStatePath: ".browser-agent/state.json", saveStorageStateOnClose: false },
+    });
+
+    expect(session.profile.storageStatePath).toBe(".browser-agent/state.json");
+    expect(session.profile.saveStorageStateOnClose).toBe(false);
+  });
+
+  test("defaults saveStorageStateOnClose when storageStatePath is explicit", () => {
+    const session = new BrowserSession({
+      profile: { storageStatePath: ".browser-agent/state.json" },
+    });
+
+    expect(session.profile.saveStorageStateOnClose).toBe(true);
   });
 });
