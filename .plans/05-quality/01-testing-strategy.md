@@ -19,7 +19,7 @@ Add confidence around contracts and local browser behavior without requiring hos
 - Unit-test navigation health result shaping for success, timeout/error, and empty-page warnings.
 - Unit-test that navigate action results include `data.navigation`.
 - Unit-test that health-checked navigation emits `browser_event` named `navigation_watchdog`.
-- Opt-in local browser integration tests cover navigation, downloads, and permission grants.
+- Opt-in local browser integration tests cover navigation, downloads, permission grants, and storage state.
 
 ## Rules
 

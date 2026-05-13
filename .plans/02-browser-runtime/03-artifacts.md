@@ -1,6 +1,6 @@
 # Local Artifacts
 
-Status: PARTIAL. Screenshot, PDF, and download file artifacts exist; trajectory, HAR, and replay artifacts remain backlog.
+Status: PARTIAL. Screenshot, PDF, download, and storage-state file artifacts exist; trajectory, HAR, and replay artifacts remain backlog.
 
 ## Goal
 
@@ -19,6 +19,7 @@ Support local debugging artifacts for replay and diagnosis.
 - Screenshot action can return base64 PNG or save a PNG file.
 - PDF action can save the current page as a local file.
 - Download watchdog can save downloads to an explicit `downloadsDir` and emits completed file paths.
+- Storage state can save cookies and localStorage to an explicit `storageStatePath`.
 
 ## Rules
 

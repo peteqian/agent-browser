@@ -82,13 +82,23 @@ Grant configured browser permissions through the profile/launch config without e
 - [x] Emit `permissions_watchdog_failed` and `browser_error` when grants fail without crashing session startup.
 - [x] Add focused unit tests and an opt-in local geolocation permission integration test.
 
+## Completed Slice: Storage State
+
+Persist explicitly configured local storage state without requiring a persistent Chrome profile.
+
+### Completed
+
+- [x] Add explicit `storageStatePath` and `saveStorageStateOnClose` profile/launch configuration.
+- [x] Load cookies via CDP `Storage.setCookies`.
+- [x] Restore localStorage per origin through `Page.addScriptToEvaluateOnNewDocument`.
+- [x] Save cookies via CDP `Storage.getCookies`.
+- [x] Save localStorage for currently open page origins during session disposal.
+- [x] Emit safe `storage_state_loaded`, `storage_state_saved`, and `storage_state_failed` events without secret values.
+- [x] Exclude sessionStorage, IndexedDB, CacheStorage, service workers, and environment/fingerprint state from v1.
+
 ## Follow-Up Watchdogs
 
 Implement these only after defining caller needs and persistence shapes.
-
-### Storage State
-
-Add only after defining caller needs and persistence shape. Cookies and local/session storage require different mechanisms.
 
 ## Candidate Watchdogs
 
