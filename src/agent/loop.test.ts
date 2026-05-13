@@ -75,7 +75,9 @@ describe("decision prompt builders", () => {
     const prompt = buildDecisionUserPrompt(input);
     expect(prompt).not.toContain(SYSTEM_PROMPT);
     expect(prompt).toContain("Task: Check the heading");
-    expect(prompt).toContain("Respond with the structured decision described in the system prompt.");
+    expect(prompt).toContain(
+      "Respond with the structured decision described in the system prompt.",
+    );
   });
 });
 

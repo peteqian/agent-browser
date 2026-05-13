@@ -137,7 +137,9 @@ function BrowserAgentTui({
         <Text bold color="cyan">
           browser-agent
         </Text>
-        <Text color={state.status === "done" ? "green" : state.status === "paused" ? "yellow" : "white"}>
+        <Text
+          color={state.status === "done" ? "green" : state.status === "paused" ? "yellow" : "white"}
+        >
           {state.status} step {state.step}
         </Text>
       </Box>
@@ -170,7 +172,7 @@ function BrowserAgentTui({
         ))}
       </Box>
 
-      <Text dimColor>p pause/resume  q quit  arrows scroll log</Text>
+      <Text dimColor>p pause/resume q quit arrows scroll log</Text>
     </Box>
   );
 }
@@ -203,7 +205,10 @@ function reduceEvent(state: TuiState, event: AgentEvent): TuiState {
     return {
       ...state,
       thought: event.decision.thought ?? "",
-      logs: appendLog(state.logs, `[${event.step}] decision ${event.decision.actions[0]?.name ?? "none"}`),
+      logs: appendLog(
+        state.logs,
+        `[${event.step}] decision ${event.decision.actions[0]?.name ?? "none"}`,
+      ),
     };
   }
   if (event.type === "action_start") {

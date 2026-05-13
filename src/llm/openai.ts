@@ -7,14 +7,17 @@ import type { LLMAdapterOptions } from "./types";
 import { buildTelemetry } from "./telemetry";
 import { decisionJsonSchema, validateDecision } from "./decisionSchema";
 
-function buildUserContent(input: DecisionInput): Array<{
-  type: "input_text";
-  text: string;
-} | {
-  type: "input_image";
-  image_url: string;
-  detail: string;
-}> {
+function buildUserContent(input: DecisionInput): Array<
+  | {
+      type: "input_text";
+      text: string;
+    }
+  | {
+      type: "input_image";
+      image_url: string;
+      detail: string;
+    }
+> {
   const screenshot = input.browserState?.screenshot;
   return [
     { type: "input_text" as const, text: buildDecisionUserPrompt(input) },

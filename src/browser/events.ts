@@ -4,7 +4,11 @@ import type { BrowserStateSummary } from "./state";
 
 export type BrowserEvent =
   | { type: "browser_state"; state: BrowserStateSummary }
-  | { type: "screenshot"; targetId: string; screenshot: NonNullable<BrowserStateSummary["screenshot"]> }
+  | {
+      type: "screenshot";
+      targetId: string;
+      screenshot: NonNullable<BrowserStateSummary["screenshot"]>;
+    }
   | { type: "action_start"; step: number; action: RegisteredAction }
   | { type: "browser_event"; name: string; targetId?: string; data?: unknown }
   | { type: "browser_error"; message: string; targetId?: string; error?: unknown }

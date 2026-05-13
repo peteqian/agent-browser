@@ -105,7 +105,11 @@ describe("download watchdog browser integration", () => {
         });
 
         const completed = await waitForCompletedDownload(events);
-        const data = completed.data as { path?: string; suggestedFilename?: string; state?: string };
+        const data = completed.data as {
+          path?: string;
+          suggestedFilename?: string;
+          state?: string;
+        };
         expect(data.state).toBe("completed");
         expect(data.suggestedFilename).toBe("fixture-download.txt");
         expect(data.path).toBeString();

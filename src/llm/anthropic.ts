@@ -11,9 +11,7 @@ import { decisionJsonSchema, validateDecision } from "./decisionSchema";
 
 function buildUserContent(input: DecisionInput): ContentBlockParam[] {
   const screenshot = input.browserState?.screenshot;
-  const blocks: ContentBlockParam[] = [
-    { type: "text", text: buildDecisionUserPrompt(input) },
-  ];
+  const blocks: ContentBlockParam[] = [{ type: "text", text: buildDecisionUserPrompt(input) }];
   if (screenshot) {
     blocks.unshift({
       type: "image",

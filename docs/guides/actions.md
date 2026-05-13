@@ -21,9 +21,9 @@ The LLM picks from a fixed menu of 24 named actions defined in `src/actions/type
 
 ## Browser lifecycle
 
-| Name            | Params | What                                          |
-| --------------- | ------ | --------------------------------------------- |
-| `close_browser` | –      | Close the browser session and end the run     |
+| Name            | Params | What                                      |
+| --------------- | ------ | ----------------------------------------- |
+| `close_browser` | –      | Close the browser session and end the run |
 
 ## Input
 

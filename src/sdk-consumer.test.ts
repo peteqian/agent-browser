@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import {
-  BrowserSession,
-  runAgent,
-  type DecideFn,
-  type Page,
-  type StepInfo,
-} from "./index";
+import { BrowserSession, runAgent, type DecideFn, type Page, type StepInfo } from "./index";
 
 const testSessions = new Set<{ close: () => Promise<void>; closed: boolean }>();
 

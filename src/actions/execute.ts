@@ -162,7 +162,9 @@ export async function executeAction(
           typeof action.params.coordinateY === "number"
         ) {
           await page.clickAtCoordinates(action.params.coordinateX, action.params.coordinateY);
-          return ok(`Clicked coordinates (${action.params.coordinateX}, ${action.params.coordinateY})`);
+          return ok(
+            `Clicked coordinates (${action.params.coordinateX}, ${action.params.coordinateY})`,
+          );
         }
 
         if (typeof action.params.index !== "number") {
@@ -184,9 +186,12 @@ export async function executeAction(
           action.params.submit ?? false,
         );
         return success
-          ? ok(`Typed into [${action.params.index}]${action.params.submit ? " and submitted" : ""}`, {
-              longTermMemory: `Typed into [${action.params.index}]`,
-            })
+          ? ok(
+              `Typed into [${action.params.index}]${action.params.submit ? " and submitted" : ""}`,
+              {
+                longTermMemory: `Typed into [${action.params.index}]`,
+              },
+            )
           : fail(`Element [${action.params.index}] not typable`);
       }
 
@@ -270,10 +275,13 @@ export async function executeAction(
             activeTargetId: tab.targetId,
           });
         }
-        return ok(`Opened new tab ${tab.targetId}${action.params.url ? ` with ${action.params.url}` : ""}`, {
-          longTermMemory: `Opened new tab ${tab.targetId}`,
-          activeTargetId: tab.targetId,
-        });
+        return ok(
+          `Opened new tab ${tab.targetId}${action.params.url ? ` with ${action.params.url}` : ""}`,
+          {
+            longTermMemory: `Opened new tab ${tab.targetId}`,
+            activeTargetId: tab.targetId,
+          },
+        );
       }
 
       case "switch_tab": {
@@ -386,7 +394,9 @@ export async function executeAction(
       case "find_text": {
         const found = await page.scrollToText(action.params.text);
         return found
-          ? ok(`Scrolled to text: ${action.params.text}`, { longTermMemory: "Scrolled to target text" })
+          ? ok(`Scrolled to text: ${action.params.text}`, {
+              longTermMemory: "Scrolled to target text",
+            })
           : fail(`Text '${action.params.text}' not found or not visible on page`);
       }
 
