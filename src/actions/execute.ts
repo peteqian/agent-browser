@@ -198,7 +198,9 @@ export async function executeAction(
       case "click": {
         const detectMs = newTabDetectMs ?? 500;
         // Subscribe BEFORE issuing the click so Target.attachedToTarget cannot race us.
-        const tabWatch = session && detectMs > 0 ? session.waitForNewPageTarget(detectMs) : null;
+        // Filter by openerId so unrelated background attachments don't poison the watcher.
+        const tabWatch =
+          session && detectMs > 0 ? session.waitForNewPageTarget(detectMs, page.targetId) : null;
 
         const subject =
           typeof action.params.index === "number"

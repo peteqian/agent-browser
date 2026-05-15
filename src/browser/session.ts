@@ -35,7 +35,7 @@ export interface BrowserSessionOptions {
 
 interface AttachedTargetEvent {
   sessionId: string;
-  targetInfo: { targetId: string; type: string; url: string };
+  targetInfo: { targetId: string; type: string; url: string; openerId?: string };
 }
 
 interface DetachedTargetEvent {
@@ -858,12 +858,14 @@ export class BrowserSession {
   }
 
   /**
-   * Resolve with the targetId of the next attached page target, or `null` if
-   * no new page attaches within `timeoutMs`. Call before triggering an action
-   * that may spawn a tab (e.g. `target=_blank` click) so the subscription is
-   * already active when `Target.attachedToTarget` fires.
+   * Resolve with the targetId of the next page target attached with
+   * `openerId === openerTargetId`, or `null` if none attaches within
+   * `timeoutMs`. The opener filter prevents unrelated background tab
+   * attachments (downloads, prior navigation popups) from being mistaken
+   * for the caller's click outcome. Subscribe before triggering the
+   * spawning action so `Target.attachedToTarget` cannot race.
    */
-  waitForNewPageTarget(timeoutMs: number): Promise<string | null> {
+  waitForNewPageTarget(timeoutMs: number, openerTargetId?: string): Promise<string | null> {
     return new Promise((resolve) => {
       let settled = false;
       const finish = (targetId: string | null) => {
@@ -875,12 +877,17 @@ export class BrowserSession {
       };
       const unsubscribe = this.eventBus.on((event) => {
         if (
-          event.type === "browser_event" &&
-          event.name === "target_attached" &&
-          typeof event.targetId === "string"
+          event.type !== "browser_event" ||
+          event.name !== "target_attached" ||
+          typeof event.targetId !== "string"
         ) {
-          finish(event.targetId);
+          return;
         }
+        if (openerTargetId !== undefined) {
+          const data = event.data as { openerId?: string } | undefined;
+          if (data?.openerId !== openerTargetId) return;
+        }
+        finish(event.targetId);
       });
       const timer = setTimeout(() => finish(null), timeoutMs);
     });

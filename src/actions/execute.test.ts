@@ -224,7 +224,7 @@ function createClickPage(): { page: Page } {
 
 function createSessionWithTabSpawn(newTargetId: string | null): BrowserSession {
   return {
-    waitForNewPageTarget: async (_timeoutMs: number) => newTargetId,
+    waitForNewPageTarget: async (_timeoutMs: number, _openerTargetId?: string) => newTargetId,
   } as unknown as BrowserSession;
 }
 
@@ -280,6 +280,48 @@ describe("executeAction click new-tab detection", () => {
     );
 
     expect(result.activeTargetId).toBeUndefined();
+  });
+
+  test("passes current page targetId as openerId filter", async () => {
+    const { page } = createClickPage();
+    const captured: { openerId?: string } = {};
+    const session = {
+      waitForNewPageTarget: async (_timeoutMs: number, openerTargetId?: string) => {
+        captured.openerId = openerTargetId;
+        return null;
+      },
+    } as unknown as BrowserSession;
+    await executeAction(
+      page,
+      { name: "click", params: { index: 3 } },
+      session,
+      undefined,
+      singleEntrySelectorMap(3, 99),
+      undefined,
+      500,
+    );
+
+    expect(captured.openerId).toBe("page-1");
+  });
+
+  test("detects new tab when clicking by coordinates", async () => {
+    const page = {
+      targetId: "page-1",
+      clickAtCoordinates: async () => {},
+    } as unknown as Page;
+    const session = createSessionWithTabSpawn("page-2");
+    const result = await executeAction(
+      page,
+      { name: "click", params: { coordinateX: 100, coordinateY: 200 } },
+      session,
+      undefined,
+      undefined,
+      undefined,
+      500,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.activeTargetId).toBe("page-2");
   });
 
   test("skips detection when newTabDetectMs is 0", async () => {
