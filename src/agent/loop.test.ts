@@ -731,3 +731,29 @@ describe("AgentController", () => {
     });
   });
 });
+
+describe("runAgent final-step finalization", () => {
+  test("prepends FINAL STEP notice to observation on the last allowed step", async () => {
+    const seen: string[] = [];
+    await runAgent({
+      task: "finalize cleanly",
+      page: createFakePage({ waitForTimeout: async () => {} }),
+      maxSteps: 2,
+      decide: async (input) => {
+        seen.push(input.observation);
+        if (input.step === 1) {
+          return { actions: [{ name: "wait", params: { ms: 1 } }], done: false };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "finalized" } }],
+          done: true,
+        };
+      },
+    });
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toContain("FINAL STEP");
+    expect(seen[1]).toContain("FINAL STEP (2/2)");
+    expect(seen[1]).toContain("`done` action");
+  });
+});

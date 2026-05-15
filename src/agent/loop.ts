@@ -217,6 +217,11 @@ async function runAgentInner<TData = unknown>(
         await emitEvent(options, { type: "screenshot", step, screenshot: browserState.screenshot });
       }
 
+      const isLastStep = step === maxSteps;
+      const effectiveObservation = isLastStep
+        ? `FINAL STEP (${step}/${maxSteps}): No further actions will be executed after this turn. Respond with the \`done\` action — set success=true if the task is complete or success=false with a summary of remaining work otherwise.\n\n${observation}`
+        : observation;
+
       let decision: Decision;
       try {
         const decideInput = {
@@ -224,7 +229,7 @@ async function runAgentInner<TData = unknown>(
           step,
           maxSteps,
           browserState,
-          observation,
+          observation: effectiveObservation,
           tabs,
           activeTab: page.targetId,
           history: actionHistory.slice(-HISTORY_WINDOW),

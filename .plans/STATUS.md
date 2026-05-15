@@ -40,6 +40,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 - Integration fixture infrastructure landed under `src/__integration__/`. `startFixtureServer` exposes default HTML pages for forms, hidden file inputs, OAuth-style new tabs, and paginated lists; `withIntegrationContext` boots a headless `BrowserSession` against the fixture URL. Integration tests are gated behind `BAGENT_INT=1` so they skip cleanly in sandboxes without Chrome.
 - `extract_content` action now classifies thrown extraction errors (navigation_in_flight, timeout, unknown) and returns a recoverable `ok:false` result with `data.extractionError = { reason, message }` so the loop can retry intelligently instead of treating it as a generic action failure.
 - `extract_content` accepts an `alreadyCollected` param (capped at 5000 entries) that is forwarded to `extractContent`; matching absolute link URLs are skipped, so paginated extractions across many pages produce dedupe-clean output.
+- On the final allowed step, the decision loop prepends a `FINAL STEP (N/N)` directive to the observation instructing the model to respond with the `done` action (success=true or false with a summary). Earlier steps see no change.
 
 ## Skip Unless Relevant
 
