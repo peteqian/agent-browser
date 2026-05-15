@@ -10,10 +10,40 @@ import type { AgentEvent, OnEventCallback } from "../agent/contracts";
 import { createDecide } from "../llm";
 import { PACKAGE_NAME, VERSION } from "../version";
 
+export type ArtifactKind = "screenshot" | "pdf";
+
+export interface SessionArtifact {
+  kind: ArtifactKind;
+  path: string;
+  createdAt: number;
+}
+
 interface SessionRecord {
   session: BrowserSession;
   page: Page;
   lastAccessedAt: number;
+  artifacts: SessionArtifact[];
+}
+
+/**
+ * Pull a filesystem path out of an executeAction result and record it on the
+ * session. screenshot/save_as_pdf both surface `data.path` when they write to
+ * disk; ignore in-memory variants (e.g. base64-only screenshots).
+ */
+export function recordArtifact(
+  record: { artifacts: SessionArtifact[] },
+  kind: ArtifactKind,
+  result: unknown,
+  now: number = Date.now(),
+): SessionArtifact | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const data = (result as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return undefined;
+  const path = (data as { path?: unknown }).path;
+  if (typeof path !== "string" || path.length === 0) return undefined;
+  const artifact: SessionArtifact = { kind, path, createdAt: now };
+  record.artifacts.push(artifact);
+  return artifact;
 }
 
 const sessions = new Map<string, SessionRecord>();
@@ -164,7 +194,7 @@ export function createServer(): McpServer {
       });
       const page = await session.newPage();
       const sessionId = nextSessionId();
-      sessions.set(sessionId, { session, page, lastAccessedAt: Date.now() });
+      sessions.set(sessionId, { session, page, lastAccessedAt: Date.now(), artifacts: [] });
       ensureSweeper();
       if (startUrl) {
         await page.goto(startUrl);
@@ -595,8 +625,13 @@ export function createServer(): McpServer {
       inputSchema: z.object({ sessionId: z.string(), fileName: z.string().optional() }),
     },
     async ({ sessionId, fileName }) => {
-      const { page } = getSession(sessionId);
-      return jsonResult(await executeAction(page, { name: "screenshot", params: { fileName } }));
+      const record = getSession(sessionId);
+      const result = await executeAction(record.page, {
+        name: "screenshot",
+        params: { fileName },
+      });
+      recordArtifact(record, "screenshot", result);
+      return jsonResult(result);
     },
   );
 
@@ -626,19 +661,36 @@ export function createServer(): McpServer {
       }),
     },
     async ({ sessionId, fileName, printBackground, landscape, scale, paperFormat }) => {
-      const { page } = getSession(sessionId);
-      return jsonResult(
-        await executeAction(page, {
-          name: "save_as_pdf",
-          params: {
-            fileName,
-            printBackground,
-            landscape,
-            scale,
-            paperFormat,
-          },
-        }),
-      );
+      const record = getSession(sessionId);
+      const result = await executeAction(record.page, {
+        name: "save_as_pdf",
+        params: {
+          fileName,
+          printBackground,
+          landscape,
+          scale,
+          paperFormat,
+        },
+      });
+      recordArtifact(record, "pdf", result);
+      return jsonResult(result);
+    },
+  );
+
+  server.registerTool(
+    "list_artifacts",
+    {
+      description:
+        "List filesystem artifacts (screenshots, PDFs) saved during this session, in creation order.",
+      inputSchema: z.object({
+        sessionId: z.string(),
+        kind: z.enum(["screenshot", "pdf"]).optional(),
+      }),
+    },
+    async ({ sessionId, kind }) => {
+      const record = getSession(sessionId);
+      const items = kind ? record.artifacts.filter((a) => a.kind === kind) : record.artifacts;
+      return jsonResult({ artifacts: items });
     },
   );
 
