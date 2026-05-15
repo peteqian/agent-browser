@@ -1,3 +1,5 @@
+import { existsSync, statSync } from "node:fs";
+
 import type { BrowserSession, Page } from "../browser/session";
 import type { SelectorMap } from "../dom/cdp-snapshot";
 import type { Action } from "./types";
@@ -313,10 +315,30 @@ export async function executeAction(
       }
 
       case "upload_file": {
+        for (const path of action.params.paths) {
+          if (!existsSync(path)) {
+            return fail(`Upload aborted: file not found: ${path}`);
+          }
+          try {
+            if (!statSync(path).isFile()) {
+              return fail(`Upload aborted: path is not a file: ${path}`);
+            }
+          } catch {
+            return fail(`Upload aborted: cannot stat path: ${path}`);
+          }
+        }
+
         const resolved = resolveBackendId(selectorMap, action.params.index);
         if (!resolved.ok) return fail(resolved.message);
+
+        const nearest = await page.findNearestFileInputBackendNodeId(resolved.backendNodeId);
+        if (!nearest.ok) {
+          if (nearest.reason === "index_stale") return fail(staleMessage(action.params.index));
+          return fail(`Could not find a file input near element [${action.params.index}]`);
+        }
+
         const result = await page.uploadFilesByBackendNodeId(
-          resolved.backendNodeId,
+          nearest.backendNodeId,
           action.params.paths,
         );
         return result.ok

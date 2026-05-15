@@ -348,3 +348,97 @@ describe("executeAction click new-tab detection", () => {
     expect(watched).toBe(false);
   });
 });
+
+describe("executeAction upload_file validation and nearest-input discovery", () => {
+  test("fails before any CDP call when path does not exist", async () => {
+    let pageCalls = 0;
+    const page = {
+      findNearestFileInputBackendNodeId: async () => {
+        pageCalls += 1;
+        return { ok: true, backendNodeId: 1 } as const;
+      },
+      uploadFilesByBackendNodeId: async () => {
+        pageCalls += 1;
+        return { ok: true } as const;
+      },
+    } as unknown as Page;
+
+    const result = await executeAction(
+      page,
+      {
+        name: "upload_file",
+        params: { index: 0, paths: ["/tmp/definitely-does-not-exist-bagent.bin"] },
+      },
+      undefined,
+      undefined,
+      singleEntrySelectorMap(0, 42),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("file not found");
+    expect(pageCalls).toBe(0);
+  });
+
+  test("uploads using the discovered nearest file input backend id", async () => {
+    const calls: { upload?: { backendNodeId: number; paths: string[] } } = {};
+    const page = {
+      findNearestFileInputBackendNodeId: async (_backendNodeId: number) =>
+        ({ ok: true, backendNodeId: 999 }) as const,
+      uploadFilesByBackendNodeId: async (backendNodeId: number, paths: string[]) => {
+        calls.upload = { backendNodeId, paths };
+        return { ok: true } as const;
+      },
+    } as unknown as Page;
+
+    const result = await executeAction(
+      page,
+      { name: "upload_file", params: { index: 0, paths: [import.meta.path] } },
+      undefined,
+      undefined,
+      singleEntrySelectorMap(0, 42),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(calls.upload?.backendNodeId).toBe(999);
+    expect(calls.upload?.paths).toEqual([import.meta.path]);
+  });
+
+  test("fails terse when no nearby file input exists", async () => {
+    const page = {
+      findNearestFileInputBackendNodeId: async () =>
+        ({ ok: false, reason: "no_file_input" }) as const,
+      uploadFilesByBackendNodeId: async () => ({ ok: true }) as const,
+    } as unknown as Page;
+
+    const result = await executeAction(
+      page,
+      { name: "upload_file", params: { index: 5, paths: [import.meta.path] } },
+      undefined,
+      undefined,
+      singleEntrySelectorMap(5, 42),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Could not find a file input");
+    expect(result.message).toContain("[5]");
+  });
+
+  test("surfaces stale element when discovery says index_stale", async () => {
+    const page = {
+      findNearestFileInputBackendNodeId: async () =>
+        ({ ok: false, reason: "index_stale" }) as const,
+      uploadFilesByBackendNodeId: async () => ({ ok: true }) as const,
+    } as unknown as Page;
+
+    const result = await executeAction(
+      page,
+      { name: "upload_file", params: { index: 7, paths: [import.meta.path] } },
+      undefined,
+      undefined,
+      singleEntrySelectorMap(7, 42),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("no longer exists");
+  });
+});

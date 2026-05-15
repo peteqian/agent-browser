@@ -1519,6 +1519,68 @@ export class Page {
     }
   }
 
+  /**
+   * Walk the DOM near `backendNodeId` looking for the closest
+   * `<input type="file">`: self first, then descendants, then ancestors
+   * up to 4 levels or the enclosing `<form>`. Returns the backend node id
+   * of the discovered input so callers can upload via a visible trigger
+   * button when the file input itself is hidden.
+   */
+  async findNearestFileInputBackendNodeId(
+    backendNodeId: number,
+  ): Promise<
+    | { ok: true; backendNodeId: number }
+    | { ok: false; reason: "index_stale" }
+    | { ok: false; reason: "no_file_input" }
+  > {
+    const objectId = await this.resolveBackendNode(backendNodeId);
+    if (!objectId) return { ok: false, reason: "index_stale" };
+    try {
+      const res = await this.session.sendToTarget<{
+        result: { objectId?: string; subtype?: string };
+        exceptionDetails?: RuntimeExceptionDetails;
+      }>(this.targetId, "Runtime.callFunctionOn", {
+        functionDeclaration: `function() {
+          const isFileInput = (el) => el && el.tagName === "INPUT" && el.type === "file";
+          if (isFileInput(this)) return this;
+          if (this.querySelector) {
+            const inside = this.querySelector('input[type="file"]');
+            if (inside) return inside;
+          }
+          let node = this;
+          for (let i = 0; i < 4 && node.parentElement; i++) {
+            node = node.parentElement;
+            if (node.querySelector) {
+              const found = node.querySelector('input[type="file"]');
+              if (found) return found;
+            }
+            if (node.tagName === "FORM") break;
+          }
+          return null;
+        }`,
+        objectId,
+        returnByValue: false,
+        awaitPromise: false,
+      });
+      if (res.exceptionDetails || !res.result.objectId) {
+        return { ok: false, reason: "no_file_input" };
+      }
+      const foundObjectId = res.result.objectId;
+      try {
+        const desc = await this.session.sendToTarget<{
+          node?: { backendNodeId?: number };
+        }>(this.targetId, "DOM.describeNode", { objectId: foundObjectId });
+        const found = desc.node?.backendNodeId;
+        if (typeof found !== "number") return { ok: false, reason: "no_file_input" };
+        return { ok: true, backendNodeId: found };
+      } finally {
+        await this.releaseObject(foundObjectId);
+      }
+    } finally {
+      await this.releaseObject(objectId);
+    }
+  }
+
   async uploadFilesByBackendNodeId(
     backendNodeId: number,
     filePaths: string[],
