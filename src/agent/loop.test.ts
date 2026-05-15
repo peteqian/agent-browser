@@ -757,6 +757,48 @@ describe("AgentController", () => {
   });
 });
 
+describe("runAgent persistent memory", () => {
+  test("seeds DecisionInput.memory from options and propagates Decision.memory updates", async () => {
+    const seen: Array<string | undefined> = [];
+    await runAgent({
+      task: "carry memory",
+      page: createFakePage({ waitForTimeout: async () => {} }),
+      maxSteps: 3,
+      memory: "seed-memory",
+      decide: async (input) => {
+        seen.push(input.memory);
+        if (input.step === 1) {
+          return {
+            actions: [{ name: "wait", params: { ms: 1 } }],
+            done: false,
+            memory: "updated-after-step-1",
+          };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "ok" } }],
+          done: true,
+        };
+      },
+    });
+
+    expect(seen).toEqual(["seed-memory", "updated-after-step-1"]);
+  });
+
+  test("buildDecisionUserPrompt includes the Current memory section when set", () => {
+    const prompt = buildDecisionUserPrompt({
+      task: "x",
+      step: 1,
+      maxSteps: 2,
+      observation: "",
+      tabs: [],
+      activeTab: "",
+      history: [],
+      memory: "remember this",
+    });
+    expect(prompt).toContain("Current memory:\nremember this");
+  });
+});
+
 describe("runAgent final-step finalization", () => {
   test("prepends FINAL STEP notice to observation on the last allowed step", async () => {
     const seen: string[] = [];

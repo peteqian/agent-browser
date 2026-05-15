@@ -27,6 +27,13 @@ export interface DecisionInput {
   activeTab: string;
   history: Array<{ action: string; result: string }>;
   actionCatalog?: string;
+  /**
+   * Persistent run memory carried across decisions. The loop initializes
+   * this from `AgentOptions.memory` and updates it whenever a `Decision`
+   * returns a new `memory` field. Adapters should surface it in the
+   * prompt so the model can rely on it across steps.
+   */
+  memory?: string;
 }
 
 /** Raw model-proposed action before schema parsing and execution. */
@@ -237,6 +244,13 @@ export interface AgentOptions<TData = unknown> {
    * before escalating to a strict stop. Default: 2.
    */
   loopDetectionNudgeBudget?: number;
+  /**
+   * Initial run memory. Surfaced via `DecisionInput.memory`; each model
+   * `Decision.memory` overwrites it for the next step. Use to inject
+   * caller-known state (user identity, partial work product, task
+   * constraints) that should outlive single observations.
+   */
+  memory?: string;
   /**
    * Cooperative control surface (pause/resume/stop). When set, the loop checks
    * `control.signal` and `control.waitIfPaused()` in addition to `signal`.

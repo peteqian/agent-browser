@@ -42,6 +42,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 - `extract_content` accepts an `alreadyCollected` param (capped at 5000 entries) that is forwarded to `extractContent`; matching absolute link URLs are skipped, so paginated extractions across many pages produce dedupe-clean output.
 - On the final allowed step, the decision loop prepends a `FINAL STEP (N/N)` directive to the observation instructing the model to respond with the `done` action (success=true or false with a summary). Earlier steps see no change.
 - Loop detection default flipped from hard-stop to **escalating nudges**. `AgentOptions.loopDetectionMode` defaults to `"nudge"` (inject a stagnation notice into the next observation, up to `loopDetectionNudgeBudget` times before escalating to a hard stop); `"strict"` preserves the immediate hard-stop behavior; `"off"` disables detection entirely. Each nudge fires a `loop_nudge` AgentEvent with `nudgesUsed` and `budget` fields. Legacy `loopDetectionEnabled === false` still maps to `"off"`.
+- Persistent per-run memory threads through the decision loop. `AgentOptions.memory` seeds it; the loop publishes the current value as `DecisionInput.memory` and updates it whenever a `Decision` returns a new `memory` string. `buildDecisionUserPrompt` includes a `Current memory:` block so all SDK adapters surface it without changes.
 
 ## Skip Unless Relevant
 
