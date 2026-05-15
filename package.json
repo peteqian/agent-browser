@@ -51,6 +51,11 @@
     "example:claude-sdk": "bun run examples/claude-sdk.ts",
     "example:codex-sdk": "bun run examples/codex-sdk.ts",
     "example:events": "bun run examples/events.ts",
+    "example:extraction": "bun run examples/extraction.ts",
+    "example:downloads": "bun run examples/downloads.ts",
+    "example:upload": "bun run examples/upload.ts",
+    "example:storage-state": "bun run examples/storage-state.ts",
+    "example:mcp": "bun run examples/mcp.ts",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch"
   },
