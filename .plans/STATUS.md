@@ -37,6 +37,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 - `click` action detects a `target=_blank`/popup tab spawned by the click and switches the loop's active page to it. Watcher subscribes to `Target.attachedToTarget` via `BrowserSession.waitForNewPageTarget` before the click so the event cannot be missed; `AgentOptions.newTabDetectMs` (default 500ms, 0 disables) bounds the wait. Watcher filters by `openerId` so unrelated background attachments cannot poison the result.
 - `upload_file` action validates each path with `existsSync`/`statSync` before any CDP call and walks the DOM via `Page.findNearestFileInputBackendNodeId` (self → descendants → ancestors up to FORM or 4 levels) so models that click a visible Upload button still hit a hidden `<input type="file">`.
 - Action registry supports `ActionDefinition.appliesTo(state)` for page-specific filtering. `describeForPrompt(state?)` and `listFor(state)` exclude actions whose predicate rejects the current `BrowserStateSummary`, so callers can scope custom actions by URL/tab count without polluting prompts on other pages.
+- Integration fixture infrastructure landed under `src/__integration__/`. `startFixtureServer` exposes default HTML pages for forms, hidden file inputs, OAuth-style new tabs, and paginated lists; `withIntegrationContext` boots a headless `BrowserSession` against the fixture URL. Integration tests are gated behind `BAGENT_INT=1` so they skip cleanly in sandboxes without Chrome.
 
 ## Skip Unless Relevant
 
