@@ -228,7 +228,7 @@ async function runAgentInner<TData = unknown>(
           tabs,
           activeTab: page.targetId,
           history: actionHistory.slice(-HISTORY_WINDOW),
-          actionCatalog: actionRegistry.describeForPrompt(),
+          actionCatalog: actionRegistry.describeForPrompt(browserState),
         };
         const parentSignal = combineSignals(options.signal, options.control?.signal);
         try {
@@ -731,7 +731,7 @@ async function tryFinalFailureRecovery<TData>(input: {
       tabs: input.tabs,
       activeTab: input.activeTab,
       history: input.history,
-      actionCatalog: input.actionRegistry.describeForPrompt(),
+      actionCatalog: input.actionRegistry.describeForPrompt(input.browserState),
     };
     const recoverySignal = combineSignals(input.options.signal, input.options.control?.signal);
     const decision = await withRetry(

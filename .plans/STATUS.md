@@ -36,6 +36,7 @@ Read this file first. It is the compact routing table for the deeper plan files.
 - `type` action accepts `mode: "replace" | "append"` (default `replace`, clears via select-all + value setter), substitutes `<secret>KEY</secret>` tokens against `AgentOptions.sensitiveData` at execute time so real values never enter prompts/history/events, and verifies the resulting `.value` against expected — surfacing a deterministic `value_mismatch` failure on divergence. Unknown placeholder keys fail before any CDP call.
 - `click` action detects a `target=_blank`/popup tab spawned by the click and switches the loop's active page to it. Watcher subscribes to `Target.attachedToTarget` via `BrowserSession.waitForNewPageTarget` before the click so the event cannot be missed; `AgentOptions.newTabDetectMs` (default 500ms, 0 disables) bounds the wait. Watcher filters by `openerId` so unrelated background attachments cannot poison the result.
 - `upload_file` action validates each path with `existsSync`/`statSync` before any CDP call and walks the DOM via `Page.findNearestFileInputBackendNodeId` (self → descendants → ancestors up to FORM or 4 levels) so models that click a visible Upload button still hit a hidden `<input type="file">`.
+- Action registry supports `ActionDefinition.appliesTo(state)` for page-specific filtering. `describeForPrompt(state?)` and `listFor(state)` exclude actions whose predicate rejects the current `BrowserStateSummary`, so callers can scope custom actions by URL/tab count without polluting prompts on other pages.
 
 ## Skip Unless Relevant
 

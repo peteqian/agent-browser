@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { executeAction, type ActionResult } from "./execute";
 import { actionSchemas, type Action, type ActionName } from "./types";
 import type { BrowserSession, Page } from "../browser/session";
+import type { BrowserStateSummary } from "../browser/state";
 import type { SelectorMap } from "../dom/cdp-snapshot";
 
 export interface RegisteredAction {
@@ -24,6 +25,14 @@ export interface ActionDefinition<TName extends string = string, TParams = unkno
   description: string;
   schema: z.ZodType<TParams>;
   run: (params: TParams, context: ActionContext) => Promise<ActionResult>;
+  /**
+   * Optional predicate that decides whether the action should appear in
+   * the prompt for the current browser state. Built-in actions omit this
+   * (always available). Custom actions can scope themselves by URL or
+   * tab count. The model never sees actions for which this returns
+   * false; if it tries to invoke one anyway, schema parse rejects it.
+   */
+  appliesTo?: (state: BrowserStateSummary) => boolean;
 }
 
 export class ActionRegistry {
@@ -63,10 +72,13 @@ export class ActionRegistry {
     return Array.from(this.definitions.values());
   }
 
-  describeForPrompt(): string {
-    return this.list()
-      .map((definition) => `- ${definition.name}: ${definition.description}`)
-      .join("\n");
+  listFor(state: BrowserStateSummary): ActionDefinition[] {
+    return this.list().filter((def) => !def.appliesTo || def.appliesTo(state));
+  }
+
+  describeForPrompt(state?: BrowserStateSummary): string {
+    const defs = state ? this.listFor(state) : this.list();
+    return defs.map((definition) => `- ${definition.name}: ${definition.description}`).join("\n");
   }
 }
 
