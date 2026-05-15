@@ -21,6 +21,33 @@ const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 const DEFAULT_MAX_FAILURES = 5;
 const DEFAULT_LOOP_DETECTION_WINDOW = 4;
 const HISTORY_WINDOW = 8;
+const DEFAULT_HISTORY_HEAD = 2;
+
+type HistoryEntry = { action: string; result: string };
+
+/**
+ * Head+tail compaction. Keeps the first `head` entries (usually the initial
+ * navigation context) plus the last `tail` entries (the recent operating
+ * window), with a synthetic marker entry filling the middle so the model can
+ * see *how much* was skipped without bloating the prompt.
+ */
+export function compactHistory(
+  history: HistoryEntry[],
+  head: number,
+  tail: number,
+): HistoryEntry[] {
+  const safeHead = Math.max(0, Math.floor(head));
+  const safeTail = Math.max(1, Math.floor(tail));
+  if (history.length <= safeHead + safeTail) return history.slice();
+  const headSlice = history.slice(0, safeHead);
+  const tailSlice = history.slice(-safeTail);
+  const omitted = history.length - safeHead - safeTail;
+  return [
+    ...headSlice,
+    { action: "...", result: `(${omitted} earlier step${omitted === 1 ? "" : "s"} omitted)` },
+    ...tailSlice,
+  ];
+}
 
 export class AgentController implements AgentControl {
   private abortController = new AbortController();
@@ -251,7 +278,11 @@ async function runAgentInner<TData = unknown>(
         observation: effectiveObservation,
         tabs,
         activeTab: page.targetId,
-        history: actionHistory.slice(-HISTORY_WINDOW),
+        history: compactHistory(
+          actionHistory,
+          options.historyHead ?? DEFAULT_HISTORY_HEAD,
+          options.historyTail ?? HISTORY_WINDOW,
+        ),
         actionCatalog: actionRegistry.describeForPrompt(browserState),
         memory: currentMemory,
       };
@@ -483,7 +514,11 @@ async function runAgentInner<TData = unknown>(
             observation,
             tabs,
             activeTab: page.targetId,
-            history: actionHistory.slice(-8),
+            history: compactHistory(
+              actionHistory,
+              options.historyHead ?? DEFAULT_HISTORY_HEAD,
+              options.historyTail ?? HISTORY_WINDOW,
+            ),
             decisionTimeoutMs,
             actionRegistry,
           });

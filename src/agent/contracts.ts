@@ -260,6 +260,17 @@ export interface AgentOptions<TData = unknown> {
    */
   loopDetectionNudgeBudget?: number;
   /**
+   * Head+tail compaction for the per-step action history surfaced to the
+   * model. When the total history exceeds `historyHead + historyTail`, the
+   * loop keeps the first `historyHead` entries plus the last `historyTail`,
+   * with a synthetic `("...", "(N earlier steps omitted)")` marker between
+   * them so the model sees how much was skipped. Default head 2, tail 8.
+   * Set `historyHead: 0` to disable head retention; `historyTail` must be at
+   * least 1.
+   */
+  historyHead?: number;
+  historyTail?: number;
+  /**
    * Initial run memory. Surfaced via `DecisionInput.memory`; each model
    * `Decision.memory` overwrites it for the next step. Use to inject
    * caller-known state (user identity, partial work product, task

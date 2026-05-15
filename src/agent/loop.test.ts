@@ -247,6 +247,50 @@ describe("runAgent browser lifecycle", () => {
   });
 });
 
+describe("runAgent history compaction", () => {
+  test("middle steps collapse to a marker entry once the window overflows", async () => {
+    const seen: DecisionInput[] = [];
+    let calls = 0;
+
+    await runAgent({
+      task: "build up history then read it back",
+      page: createFakePage({ waitForTimeout: async () => {} }),
+      maxSteps: 20,
+      historyHead: 2,
+      historyTail: 4,
+      loopDetectionMode: "off",
+      decide: async (input) => {
+        seen.push(input);
+        calls += 1;
+        if (calls < 12) {
+          return {
+            actions: [{ name: "wait", params: { ms: calls } }],
+            done: false,
+          };
+        }
+        return {
+          actions: [{ name: "done", params: { success: true, summary: "ok" } }],
+          done: false,
+        };
+      },
+    });
+
+    const lastInput = seen.at(-1);
+    expect(lastInput).toBeDefined();
+    const history = lastInput!.history;
+    // 2 head + 1 marker + 4 tail = 7
+    expect(history).toHaveLength(7);
+    expect(history[2]).toEqual({
+      action: "...",
+      result: expect.stringMatching(/^\(\d+ earlier steps? omitted\)$/) as unknown as string,
+    });
+    // Earliest entries kept verbatim.
+    expect(history[0]?.action).toContain("wait");
+    // Tail end carries the most recent.
+    expect(history.at(-1)?.action).toContain("wait");
+  });
+});
+
 describe("runAgent decision timeouts", () => {
   test("returns a deterministic failure when decision hangs", async () => {
     const result = await runAgent({
