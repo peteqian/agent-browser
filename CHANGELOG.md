@@ -12,11 +12,34 @@
 ### Added
 
 - `createDecide({ provider, ... })` consolidates per-provider factory selection. Replaces duplicated switches in CLI and MCP entry points. Supported providers: `codex`, `openai`, `anthropic`.
-- `AgentEvent` discriminated union and `onEvent` callback. Emits `decision`, `action`, and `terminal` events in order. `onStep` retained as a thin shim.
+- `AgentEvent` discriminated union and `onEvent` callback. Emits `decision`, `action`, `action_start`, `loop_nudge`, `terminal`, and other events in order. `onStep` retained as a thin shim.
 - `DecisionTelemetry` and `TokenUsage` types. `Decision.telemetry` is filled by built-in OpenAI and Anthropic adapters (latency, model, token counts including cached). Codex CLI adapter leaves it undefined.
 - Cancellation: full `AbortSignal` propagation. `AgentController` for cooperative pause/resume/stop. Action signal threading is best-effort (page-method calls do not all accept signals).
-- Resilience layer: `stepTimeoutMs`, `decisionTimeoutMs`, `actionTimeoutMs`, `maxFailures`, `finalResponseAfterFailure`, `loopDetectionEnabled`, `loopDetectionWindow`.
+- Resilience layer: `stepTimeoutMs`, `decisionTimeoutMs`, `actionTimeoutMs`, `maxFailures`, `finalResponseAfterFailure`.
+- Loop detection: `loopDetectionMode` (`"nudge"` default, `"strict"`, `"off"`), `loopDetectionWindow`, `loopDetectionNudgeBudget`. Nudge mode injects a stagnation notice into the next observation and escalates to a hard stop only after the budget is exhausted. Each nudge emits a `loop_nudge` event with `nudgesUsed`/`budget`. Legacy `loopDetectionEnabled === false` maps to `"off"`.
 - Multi-action failure detection: a step where every action fails increments the consecutive-failure counter (previously only single-action steps did).
+- DOM snapshot: CDP `DOMSnapshot.captureSnapshot` plus `Accessibility.getFullAXTree` with a stable `SelectorMap` (index → backendNodeId). Stale lookups produce a deterministic `Element [N] no longer exists in the DOM` failure. Prompt budgets configurable via `AgentOptions.domBudgets`.
+- Safer action semantics:
+  - `type` accepts `mode: "replace" | "append"`, substitutes `<secret>KEY</secret>` tokens against `AgentOptions.sensitiveData` at execute time (real values never enter prompts/history/events), and verifies `.value` against expected text — surfacing a deterministic `value_mismatch` failure.
+  - `click` detects `target=_blank`/popup tabs spawned by the click via `Target.attachedToTarget` and switches the loop's active page to the opener-matched tab. Bounded by `AgentOptions.newTabDetectMs` (default 500ms; 0 disables).
+  - `upload_file` validates each path with `existsSync`/`statSync` before any CDP call and walks the DOM (self → descendants → ancestors up to FORM or 4 levels) to find the nearest `<input type="file">`, so models clicking a visible Upload button still hit the hidden input.
+- Action registry supports `ActionDefinition.appliesTo(state)`. `describeForPrompt(state?)` and `listFor(state)` filter actions whose predicate rejects the current `BrowserStateSummary`.
+- `extract_content`:
+  - Classifies thrown extraction errors (`navigation_in_flight`, `timeout`, `unknown`) and returns a recoverable `ok:false` result with `data.extractionError = { reason, message }` for intelligent retry.
+  - Accepts `alreadyCollected` (capped at 5000 entries); matching absolute link URLs are skipped so paginated extraction produces dedupe-clean output.
+- Final-step nudge: on the last allowed step, the decision loop prepends a `FINAL STEP (N/N)` directive to the observation instructing the model to emit `done` (success=true or false with a summary). Earlier steps unchanged.
+- Persistent per-run memory: `AgentOptions.memory` seeds it; `DecisionInput.memory` exposes the current value; `Decision.memory` updates it. `buildDecisionUserPrompt` includes a `Current memory:` block so all SDK adapters surface it without changes.
+- Optional final judge: `AgentOptions.judge: JudgeFn`. After a successful `done`, the judge receives the final `DecisionInput`, the model's summary, and validated `data`. Returning `pass: false` produces a terminal with `reason: "judge_failed"` and the judge's `reason` appended to the summary. Failures (`done` with `success: false`) skip the judge.
+- MCP server resilience:
+  - Per-session `lastAccessedAt` plus a `.unref()`ed sweeper closes idle sessions beyond `MCP_SESSION_TTL_MS` (default 30 min) on `MCP_SESSION_SWEEP_MS` cadence (default 10 min). `sweepIdleSessions(now?)` and `shutdownAllSessions()` exported for test harnesses and shutdown hooks.
+  - Per-session artifact tracking: `screenshot` and `save_as_pdf` tool wrappers feed filesystem paths into a session-scoped artifacts list. New `list_artifacts` tool returns them in creation order, optionally filtered by `kind`. In-memory base64 screenshots are skipped.
+- Integration fixture infrastructure under `src/__integration__/`: `startFixtureServer` exposes default pages (forms, hidden file inputs, OAuth-style new tabs, paginated lists); `withIntegrationContext` boots a headless `BrowserSession` against the fixture. Gated behind `BAGENT_INT=1` so the suite skips cleanly in sandboxes without Chrome.
+
+### Public API audit
+
+- `BrowserSession.waitForNewPageTarget` and `BrowserSession.findNearestFileInputBackendNodeId` are now part of the public surface; custom actions can lean on them for new-tab detection and upload discovery without reaching into internals.
+- `JudgeFn` is exported from the public entry for callers writing custom judges.
+- MCP artifact internals (`SessionArtifact`, `ArtifactKind`, `recordArtifact`, `sweepIdleSessions`, `shutdownAllSessions`) are intentionally not re-exported from `@browser-agent/core`; they remain importable from `./mcp/server` for harnesses and tests but carry no stability guarantee.
 
 ### Fixed
 
