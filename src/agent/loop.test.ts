@@ -532,13 +532,14 @@ describe("runAgent consecutive failures", () => {
 });
 
 describe("runAgent loop detection", () => {
-  test("stops after repeated identical action fingerprints", async () => {
+  test("strict mode stops after repeated identical action fingerprints", async () => {
     const result = await runAgent({
       task: "detect repeated loop",
       page: createFakePage({
         clickByBackendNodeId: async () => ({ ok: true }),
       }),
       maxSteps: 5,
+      loopDetectionMode: "strict",
       loopDetectionWindow: 3,
       decide: async () => ({
         actions: [{ name: "click", params: { index: 1 } }],
@@ -553,6 +554,29 @@ describe("runAgent loop detection", () => {
       data: null,
       steps: 3,
     });
+  });
+
+  test("default nudge mode emits notices and escalates to a hard stop after the budget is spent", async () => {
+    const nudges: number[] = [];
+    const result = await runAgent({
+      task: "nudge then escalate",
+      page: createFakePage({
+        clickByBackendNodeId: async () => ({ ok: true }),
+      }),
+      maxSteps: 10,
+      loopDetectionWindow: 3,
+      loopDetectionNudgeBudget: 2,
+      onEvent: async (event) => {
+        if (event.type === "loop_nudge") nudges.push(event.nudgesUsed);
+      },
+      decide: async () => ({
+        actions: [{ name: "click", params: { index: 1 } }],
+        done: false,
+      }),
+    });
+
+    expect(nudges).toEqual([1, 2]);
+    expect(result.reason).toBe("loop_detected");
   });
 
   test("can disable loop detection", async () => {
@@ -586,6 +610,7 @@ describe("runAgent loop detection", () => {
         clickByBackendNodeId: async () => ({ ok: true }),
       }),
       maxSteps: 4,
+      loopDetectionMode: "strict",
       loopDetectionWindow: Number.NaN,
       decide: async () => ({
         actions: [{ name: "click", params: { index: 1 } }],

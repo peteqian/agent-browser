@@ -91,6 +91,7 @@ export type AgentEvent<TData = unknown> =
       result: { ok: boolean; message: string };
     }
   | { type: "transport_resolved"; resolution: TransportResolution }
+  | { type: "loop_nudge"; step: number; notice: string; nudgesUsed: number; budget: number }
   | { type: "terminal"; result: AgentResult<TData> };
 
 /** Logical environment the agent is running in. Drives transport priority. */
@@ -215,10 +216,27 @@ export interface AgentOptions<TData = unknown> {
    * action. Useful for surfacing structured failure summaries. Default: true.
    */
   finalResponseAfterFailure?: boolean;
-  /** Enable identical-fingerprint loop detection. Default: true. */
+  /**
+   * Identical-fingerprint loop detection mode. Default: `"nudge"`.
+   * - `"nudge"`: inject a one-line notice into the next observation so the
+   *   model can break the pattern; after `loopDetectionNudgeBudget` notices
+   *   without progress, escalate to a hard stop.
+   * - `"strict"`: hard-stop immediately when the fingerprint window repeats.
+   * - `"off"`: skip loop detection entirely.
+   *
+   * Legacy alias: `loopDetectionEnabled === false` is interpreted as
+   * `"off"`. When `loopDetectionMode` is set it overrides the legacy flag.
+   */
+  loopDetectionMode?: "nudge" | "strict" | "off";
+  /** @deprecated Prefer `loopDetectionMode`. */
   loopDetectionEnabled?: boolean;
   /** Number of identical consecutive fingerprints to treat as a loop. Default: 4. */
   loopDetectionWindow?: number;
+  /**
+   * In `"nudge"` mode, the maximum number of consecutive nudges to emit
+   * before escalating to a strict stop. Default: 2.
+   */
+  loopDetectionNudgeBudget?: number;
   /**
    * Cooperative control surface (pause/resume/stop). When set, the loop checks
    * `control.signal` and `control.waitIfPaused()` in addition to `signal`.

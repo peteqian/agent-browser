@@ -143,8 +143,15 @@ async function runAgentInner<TData = unknown>(
   const decisionTimeoutMs = coerceDecisionTimeoutMs(options.decisionTimeoutMs);
   const maxFailures = coerceMaxFailures(options.maxFailures);
   const finalResponseAfterFailure = options.finalResponseAfterFailure ?? true;
-  const loopDetectionEnabled = options.loopDetectionEnabled ?? true;
+  const loopDetectionMode: "nudge" | "strict" | "off" = (() => {
+    if (options.loopDetectionMode) return options.loopDetectionMode;
+    if (options.loopDetectionEnabled === false) return "off";
+    return "nudge";
+  })();
   const loopDetectionWindow = coerceLoopDetectionWindow(options.loopDetectionWindow);
+  const loopNudgeBudget = Math.max(1, options.loopDetectionNudgeBudget ?? 2);
+  let loopNudgesUsed = 0;
+  let pendingLoopNotice: string | null = null;
   const vision = options.vision ?? "auto";
   const planning = options.planning ?? true;
   const actionRegistry = resolveActionRegistry(options.actions);
@@ -218,9 +225,20 @@ async function runAgentInner<TData = unknown>(
       }
 
       const isLastStep = step === maxSteps;
-      const effectiveObservation = isLastStep
-        ? `FINAL STEP (${step}/${maxSteps}): No further actions will be executed after this turn. Respond with the \`done\` action — set success=true if the task is complete or success=false with a summary of remaining work otherwise.\n\n${observation}`
-        : observation;
+      const prefixSegments: string[] = [];
+      if (isLastStep) {
+        prefixSegments.push(
+          `FINAL STEP (${step}/${maxSteps}): No further actions will be executed after this turn. Respond with the \`done\` action — set success=true if the task is complete or success=false with a summary of remaining work otherwise.`,
+        );
+      }
+      if (pendingLoopNotice) {
+        prefixSegments.push(pendingLoopNotice);
+        pendingLoopNotice = null;
+      }
+      const effectiveObservation =
+        prefixSegments.length === 0
+          ? observation
+          : `${prefixSegments.join("\n\n")}\n\n${observation}`;
 
       let decision: Decision;
       try {
@@ -374,20 +392,35 @@ async function runAgentInner<TData = unknown>(
         return terminalResult;
       }
 
-      if (loopDetectionEnabled && actionResults.length > 0) {
+      if (loopDetectionMode !== "off" && actionResults.length > 0) {
         const loopFingerprint = buildLoopFingerprint(browserState, actionResults);
         loopFingerprints.push(loopFingerprint);
         if (loopFingerprints.length > loopDetectionWindow) {
           loopFingerprints.shift();
         }
         if (isRepeatingLoop(loopFingerprints, loopDetectionWindow)) {
-          return {
-            success: false,
-            reason: "loop_detected",
-            summary: `Stopped after detecting a repeated action loop over ${loopDetectionWindow} steps.`,
-            data: null,
-            steps: step,
-          };
+          if (loopDetectionMode === "strict" || loopNudgesUsed >= loopNudgeBudget) {
+            return {
+              success: false,
+              reason: "loop_detected",
+              summary: `Stopped after detecting a repeated action loop over ${loopDetectionWindow} steps.`,
+              data: null,
+              steps: step,
+            };
+          }
+          loopNudgesUsed += 1;
+          const notice = `Stagnation notice: the last ${loopDetectionWindow} steps repeated the same action and produced the same page state. Try a different approach — change parameters, target a different element, or call \`done\` if you cannot make progress. (nudge ${loopNudgesUsed}/${loopNudgeBudget})`;
+          pendingLoopNotice = notice;
+          await emitEvent(options, {
+            type: "loop_nudge",
+            step,
+            notice,
+            nudgesUsed: loopNudgesUsed,
+            budget: loopNudgeBudget,
+          });
+        } else {
+          // Made progress: reset nudge counter so future stagnations re-arm.
+          if (loopNudgesUsed > 0) loopNudgesUsed = 0;
         }
       }
 
