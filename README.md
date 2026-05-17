@@ -177,9 +177,9 @@ bun run dev:mcp       # MCP server from source
 
 Examples in `examples/` — `bun run example:goto`, `example:agent`, `example:openai`, `example:typed-output`, `example:extraction`, `example:mcp`, etc.
 
-## AI manual
+## For AI agents
 
-Agent contributors should read `AGENTS.md` (symlinked as `CLAUDE.md`). It owns architecture, contract ownership, and editing rules for this package.
+Skip this README — read [`docs/ai/`](./docs/ai/README.md) instead. It splits architecture, contracts, commands, conventions, and troubleshooting into focused files. `AGENTS.md` and `CLAUDE.md` at the root are thin pointers to the same folder.
 
 ## License
 
