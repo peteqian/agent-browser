@@ -1,6 +1,6 @@
 # @browser-agent/core
 
-TypeScript browser automation agent using raw Chrome DevTools Protocol plus an LLM decision loop, inspired by `browser-use`.
+TypeScript browser automation agent using raw Chrome DevTools Protocol plus an LLM decision loop.
 
 ## Quick AI Manual
 
@@ -42,6 +42,73 @@ Vision, planning, and actions:
 - Vision defaults to `auto`. OpenAI and Anthropic API transports receive screenshots as native multimodal input when available; CLI and agent-SDK transports fall back to text state.
 - Decisions may include `memory`, `evaluationPreviousGoal`, `nextGoal`, and `plan`. These are surfaced through `planning` events and the TUI.
 - Actions are resolved through an `ActionRegistry`. Use `createDefaultActionRegistry()` for built-ins, or pass custom `actions` to `runAgent()`.
+
+Simple agent usage:
+
+```ts
+import { Agent, Browser } from "@browser-agent/core";
+
+const browser = new Browser();
+const agent = new Agent({
+  task: "Go to example.com and report the H1 text.",
+  browser,
+  startUrl: "https://example.com",
+});
+
+try {
+  const result = await agent.run();
+  console.log(result.summary);
+} finally {
+  await browser.close();
+}
+```
+
+Choose a provider only when the default is not what you want:
+
+```ts
+const browser = new Browser();
+const agent = new Agent({
+  task: "Find the top Hacker News story.",
+  browser,
+  startUrl: "https://news.ycombinator.com",
+  llm: {
+    provider: "openai",
+    model: "gpt-4.1-mini",
+  },
+});
+```
+
+Direct browser usage:
+
+```ts
+import { Browser } from "@browser-agent/core";
+
+const browser = new Browser();
+
+try {
+  const page = await browser.newPage();
+  await page.goto("https://example.com");
+  console.log(await page.title());
+} finally {
+  await browser.close();
+}
+```
+
+Browsers run headless by default. Pass `headless: false` only when you want to see the window:
+
+```ts
+const browser = new Browser({ headless: false });
+```
+
+Lower-level agent usage:
+
+- Use `Browser` and `Agent` for normal task automation.
+- Use direct option names on `Agent`: `llm`, `browser`, `tools`, `outputModelSchema`, `useVision`, `maxFailures`, and `llmTimeout`.
+- `llm` defaults to `"auto"`: it tries Codex and Claude local SDK/CLI transports first, then falls back to API-key providers when available.
+- Set `llm: "codex"`, `llm: "claude"`, `llm: "openai"`, or `llm: "anthropic"` to force the provider.
+- Use `getNextAction` only when you want to provide your own function that returns an `AgentOutput`.
+- Use `runAgent()` when you need to provide your own `decide` function, custom transport resolution, or externally managed browser session.
+- Use `BrowserSession` when you want direct CDP-backed session control without the simple facade.
 
 Main entry points:
 

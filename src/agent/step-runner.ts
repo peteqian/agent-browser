@@ -3,7 +3,7 @@ import type { ActionRegistry } from "../actions/registry";
 import type { Action } from "../actions/types";
 import type { BrowserSession, Page } from "../browser/session";
 import type { BrowserStateSummary } from "../browser/state";
-import type { AgentAction, AgentOptions, AgentResult, Decision, DecisionInput } from "./contracts";
+import type { AgentAction, AgentInput, AgentOptions, AgentOutput, AgentResult } from "./contracts";
 import { emitEvent } from "./emit";
 import { buildAbortedResult, buildStoppedResult, buildTerminalData } from "./terminal-result";
 import { combineSignals, executeActionWithTimeout } from "./timeouts";
@@ -32,8 +32,8 @@ export async function checkInterrupt<TData>(
 export async function runActions<TData>(input: {
   options: AgentOptions<TData>;
   actionRegistry: ActionRegistry;
-  decision: Decision;
-  decideInput: DecisionInput;
+  decision: AgentOutput;
+  decideInput: AgentInput;
   page: Page;
   session: BrowserSession | undefined;
   step: number;
@@ -123,7 +123,7 @@ export async function runActions<TData>(input: {
 
 async function maybeTerminal<TData>(input: {
   action: AgentAction;
-  decideInput: DecisionInput;
+  decideInput: AgentInput;
   result: ActionResult;
   options: AgentOptions<TData>;
   step: number;
@@ -149,7 +149,7 @@ async function maybeTerminal<TData>(input: {
 
 async function resolveDoneTerminal<TData>(input: {
   action: AgentAction;
-  decideInput: DecisionInput;
+  decideInput: AgentInput;
   options: AgentOptions<TData>;
   step: number;
 }): Promise<AgentResult<TData>> {

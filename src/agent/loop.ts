@@ -1,5 +1,5 @@
 import { BrowserSession, type Page } from "../browser/session";
-import type { AgentOptions, AgentResult, Decision, DecisionInput } from "./contracts";
+import type { AgentInput, AgentOptions, AgentOutput, AgentResult } from "./contracts";
 import { emitEvent } from "./emit";
 import { compactHistory } from "./history";
 import { buildLoopFingerprint, isRepeatingLoop } from "./loop-detection";
@@ -132,7 +132,7 @@ async function runAgentInner<TData = unknown>(
       });
       pendingLoopNotice = null;
 
-      const decideInput: DecisionInput = {
+      const decideInput: AgentInput = {
         task: options.task,
         step,
         maxSteps: cfg.maxSteps,
@@ -145,7 +145,7 @@ async function runAgentInner<TData = unknown>(
         memory: currentMemory,
       };
 
-      let decision: Decision;
+      let decision: AgentOutput;
       try {
         decision = await runDecide(options, decideInput, cfg.decisionTimeoutMs);
       } catch (error) {
@@ -296,11 +296,7 @@ interface ResolvedConfig {
 }
 
 function resolveConfig<TData>(options: AgentOptions<TData>): ResolvedConfig {
-  const loopDetectionMode: "nudge" | "strict" | "off" = (() => {
-    if (options.loopDetectionMode) return options.loopDetectionMode;
-    if (options.loopDetectionEnabled === false) return "off";
-    return "nudge";
-  })();
+  const loopDetectionMode = options.loopDetectionMode ?? "nudge";
   return {
     maxSteps: options.maxSteps ?? 40,
     stepTimeoutMs: coerceStepTimeoutMs(options.stepTimeoutMs),
@@ -334,9 +330,9 @@ function applyObservationPrefix(
 
 async function runDecide<TData>(
   options: AgentOptions<TData>,
-  decideInput: DecisionInput,
+  decideInput: AgentInput,
   decisionTimeoutMs: number,
-): Promise<Decision> {
+): Promise<AgentOutput> {
   const parentSignal = combineSignals(options.signal, options.control?.signal);
   try {
     return await withRetry(

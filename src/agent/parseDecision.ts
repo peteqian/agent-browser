@@ -1,4 +1,4 @@
-import type { Decision, DecisionInput } from "./contracts";
+import type { AgentInput, AgentOutput } from "./contracts";
 
 /**
  * Builds the per-step prompt body for freeform-text adapters (CLI binaries
@@ -9,7 +9,7 @@ import type { Decision, DecisionInput } from "./contracts";
  * Does NOT prepend the system prompt. Callers either inline it themselves
  * or pass it through the SDK's dedicated systemPrompt option.
  */
-export function buildFreeformDecisionPrompt(input: DecisionInput): string {
+export function buildFreeformDecisionPrompt(input: AgentInput): string {
   const historyBlock =
     input.history.length === 0
       ? "(none)"
@@ -35,11 +35,11 @@ Do not return any text outside JSON.`;
 }
 
 /**
- * Parses freeform-text model output into a Decision. Tolerates markdown
+ * Parses freeform-text model output into an AgentOutput. Tolerates markdown
  * code fences and surrounding prose by extracting the first balanced JSON
  * object from the text.
  */
-export function parseDecision(raw: string): Decision {
+export function parseDecision(raw: string): AgentOutput {
   const cleaned = stripCodeFences(raw);
   let parsed: { name?: unknown; params?: unknown } | null = null;
   try {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { buildFreeformDecisionPrompt, parseDecision } from "./parseDecision";
-import type { DecisionInput } from "./contracts";
+import type { AgentInput } from "./contracts";
 
-function makeInput(overrides: Partial<DecisionInput> = {}): DecisionInput {
+function makeInput(overrides: Partial<AgentInput> = {}): AgentInput {
   return {
     task: "find pricing",
     step: 1,

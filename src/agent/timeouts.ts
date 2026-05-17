@@ -2,7 +2,7 @@ import type { ActionResult } from "../actions/execute";
 import type { ActionRegistry } from "../actions/registry";
 import type { BrowserSession, Page } from "../browser/session";
 import type { SelectorMap } from "../dom/cdp-snapshot";
-import type { AgentAction, Decision, DecisionInput, ExtractionLLMFn } from "./contracts";
+import type { AgentAction, AgentInput, AgentOutput, ExtractionLLMFn } from "./contracts";
 
 export async function withRejectingTimeout<T>(
   promise: Promise<T>,
@@ -29,12 +29,12 @@ export async function withRejectingTimeout<T>(
  * decide call is also aborted.
  */
 export async function withDecideTimeout(
-  decide: (input: DecisionInput, signal: AbortSignal) => Promise<Decision>,
-  input: DecisionInput,
+  decide: (input: AgentInput, signal: AbortSignal) => Promise<AgentOutput>,
+  input: AgentInput,
   timeoutMs: number,
   message: string,
   parentSignal?: AbortSignal,
-): Promise<Decision> {
+): Promise<AgentOutput> {
   const controller = new AbortController();
   const onParentAbort = () => controller.abort(parentSignal?.reason);
   if (parentSignal) {
@@ -43,7 +43,7 @@ export async function withDecideTimeout(
   }
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<Decision>((_, reject) => {
+  const timeoutPromise = new Promise<AgentOutput>((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
       reject(new Error(message));

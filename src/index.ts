@@ -43,14 +43,14 @@ export type { ElementInfo, ElementBBox, PageSnapshot } from "./dom/types";
 export type {
   AgentControl,
   AgentEvent,
+  AgentInput,
   AgentOptions,
+  AgentOutput,
+  AgentOutputAction,
   AgentResult,
-  DecideFn,
-  Decision,
-  DecisionInput,
   EnvId,
+  GetNextActionFn,
   OnEventCallback,
-  RawAction,
   StepInfo,
   TerminalReason,
   TransportId,
@@ -59,6 +59,11 @@ export type {
   JudgeFn,
   ExtractionLLMFn,
 } from "./agent/contracts";
+
+export { Browser } from "./browser/browser";
+export type { BrowserOptions } from "./browser/browser";
+export { Agent } from "./agent/agent";
+export type { AgentProviderOptions, SimpleAgentOptions } from "./agent/agent";
 
 export {
   createOpenAIDecide,
