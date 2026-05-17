@@ -1,11 +1,5 @@
 import type { Action } from "../types";
-import {
-  fail,
-  ok,
-  resolveBackendId,
-  type ActionResult,
-  type HandlerContext,
-} from "./shared";
+import { fail, ok, resolveBackendId, type ActionResult, type HandlerContext } from "./shared";
 
 type ByName<N extends Action["name"]> = Extract<Action, { name: N }>;
 
@@ -244,10 +238,7 @@ export async function handleExtractContent(
   return ok(statsMsg, { extractedContent: wrapped, data });
 }
 
-export function handleDone(
-  _ctx: HandlerContext,
-  action: ByName<"done">,
-): ActionResult {
+export function handleDone(_ctx: HandlerContext, action: ByName<"done">): ActionResult {
   return ok(`Done (success=${action.params.success}): ${action.params.summary}`, {
     longTermMemory: action.params.summary,
   });

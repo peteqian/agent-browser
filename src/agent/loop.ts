@@ -1,10 +1,5 @@
 import { BrowserSession, type Page } from "../browser/session";
-import type {
-  AgentOptions,
-  AgentResult,
-  Decision,
-  DecisionInput,
-} from "./contracts";
+import type { AgentOptions, AgentResult, Decision, DecisionInput } from "./contracts";
 import { emitEvent } from "./emit";
 import { compactHistory } from "./history";
 import { buildLoopFingerprint, isRepeatingLoop } from "./loop-detection";
@@ -22,11 +17,7 @@ import { withRetry } from "./retry";
 import { buildStepContext, type StepContext } from "./step-context";
 import { checkInterrupt, runActions, type StepOutcome } from "./step-runner";
 import { buildMaxFailuresResult } from "./terminal-result";
-import {
-  combineSignals,
-  withDecideTimeout,
-  withRejectingTimeout,
-} from "./timeouts";
+import { combineSignals, withDecideTimeout, withRejectingTimeout } from "./timeouts";
 
 export { AgentController } from "./controller";
 export { compactHistory } from "./history";

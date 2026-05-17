@@ -3,13 +3,7 @@ import type { ActionRegistry } from "../actions/registry";
 import type { Action } from "../actions/types";
 import type { BrowserSession, Page } from "../browser/session";
 import type { BrowserStateSummary } from "../browser/state";
-import type {
-  AgentAction,
-  AgentOptions,
-  AgentResult,
-  Decision,
-  DecisionInput,
-} from "./contracts";
+import type { AgentAction, AgentOptions, AgentResult, Decision, DecisionInput } from "./contracts";
 import { emitEvent } from "./emit";
 import { buildAbortedResult, buildStoppedResult, buildTerminalData } from "./terminal-result";
 import { combineSignals, executeActionWithTimeout } from "./timeouts";

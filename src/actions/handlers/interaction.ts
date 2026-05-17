@@ -92,8 +92,7 @@ export async function handleScroll(
   ctx: HandlerContext,
   action: ByName<"scroll">,
 ): Promise<ActionResult> {
-  const pages =
-    action.params.pages ?? (action.params.amount ? action.params.amount / 1000 : 1.0);
+  const pages = action.params.pages ?? (action.params.amount ? action.params.amount / 1000 : 1.0);
   let backendNodeId: number | undefined;
   if (typeof action.params.index === "number") {
     const resolved = resolveBackendId(ctx.selectorMap, action.params.index);
