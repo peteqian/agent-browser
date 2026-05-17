@@ -119,7 +119,7 @@ Spawn `browser-agent-mcp` as a stdio MCP server. Drop into `claude_desktop_confi
   "mcpServers": {
     "browser-agent": {
       "command": "npx",
-      "args": ["-y", "@peteqian/browser-agent", "browser-agent-mcp"]
+      "args": ["-y", "-p", "@peteqian/browser-agent", "browser-agent-mcp"]
     }
   }
 }
