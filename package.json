@@ -61,6 +61,8 @@
     "example:upload": "bun run examples/upload.ts",
     "example:storage-state": "bun run examples/storage-state.ts",
     "example:mcp": "bun run examples/mcp.ts",
+    "bench": "bun run bench/src/run.ts",
+    "bench:smoke": "bun run bench/src/run.ts --tasks 3",
     "docs": "typedoc",
     "docs:watch": "typedoc --watch"
   },

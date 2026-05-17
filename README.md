@@ -27,6 +27,12 @@ Your model can reason, plan, write code. It can't open a tab, dismiss a cookie b
 - **Typed terminal output.** `done(data=...)` validated against a Zod schema.
 - **Resilient loop.** Loop detection, step + decision timeouts, abort/stop control, head+tail history compaction.
 
+## Benchmark
+
+<img src="./bench/results/comparison.svg" alt="Pass-rate, 10-task browser benchmark" width="100%"/>
+
+10 tasks across 5 categories; identical task list and judge on both sides. Different driver models — see [`bench/`](./bench/) for methodology, per-task verdicts, and raw bundles.
+
 ## Install
 
 ```bash
