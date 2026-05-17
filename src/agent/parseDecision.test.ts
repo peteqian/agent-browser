@@ -72,6 +72,15 @@ describe("parseDecision", () => {
     expect(decision.summary).toBe("");
   });
 
+  test("parses optional thought/nextGoal/memory", () => {
+    const decision = parseDecision(
+      '{"thought":"page loaded","nextGoal":"extract H1","memory":"n=1","name":"click","params":{"index":2}}',
+    );
+    expect(decision.thought).toBe("page loaded");
+    expect(decision.nextGoal).toBe("extract H1");
+    expect(decision.memory).toBe("n=1");
+  });
+
   test("non-done action leaves summary undefined", () => {
     const decision = parseDecision('{"name":"click","params":{"index":1}}');
     expect(decision.summary).toBeUndefined();
@@ -128,6 +137,12 @@ describe("buildFreeformDecisionPrompt", () => {
     const prompt = buildFreeformDecisionPrompt(makeInput());
     expect(prompt).toContain('{"name":"<action_name>","params":{...}}');
     expect(prompt).toContain("Do not return any text outside JSON");
+  });
+
+  test("documents done.params.summary requirement", () => {
+    const prompt = buildFreeformDecisionPrompt(makeInput());
+    expect(prompt).toContain("params.summary");
+    expect(prompt).toContain('"name":"done"');
   });
 
   test("does NOT prepend system prompt — caller responsibility", () => {
