@@ -29,9 +29,7 @@ Your model can reason, plan, write code. It can't open a tab, dismiss a cookie b
 
 ## Benchmark
 
-<img src="./bench/results/comparison.svg" alt="Pass-rate, 10-task browser benchmark" width="100%"/>
-
-10 tasks across 5 categories; identical task list and judge on both sides. Different driver models — see [`bench/`](./bench/) for methodology, per-task verdicts, and raw bundles.
+10 tasks across 5 categories; identical task list and judge on both sides. Different driver models. See [`bench/`](https://github.com/peteqian/agent-browser/tree/main/packages/sdk/bench) for methodology, per-task verdicts, raw bundles, and the comparison chart.
 
 ## Install
 
@@ -146,18 +144,23 @@ import { CDPClient, launchBrowser, executeAction } from "@peteqian/browser-agent
 
 ## Development
 
+Repo is a Bun + Turbo monorepo — see the root `README.md` for setup.
+
 ```bash
 bun install
-bun run typecheck     # tsc --noEmit
-bun run lint          # oxlint
-bun run fmt           # oxfmt
-bun run test          # bun test
-bun run build         # tsup -> dist/
-bun run dev:cli       # CLI from source
-bun run dev:mcp       # MCP server from source
+bun run build         # turbo build (sdk + cli)
+bun run typecheck
+bun run test
 ```
 
-Examples in `examples/` — `bun run example:goto`, `example:agent`, `example:openai`, `example:typed-output`, `example:extraction`, `example:mcp`, etc.
+SDK-only commands:
+
+```bash
+bun --cwd packages/sdk run build
+bun --cwd packages/sdk run test
+```
+
+Examples in `examples/` — `bun --cwd packages/sdk run example:goto`, `example:agent`, `example:openai`, `example:typed-output`, `example:extraction`, etc. MCP example lives in `packages/cli/examples/`.
 
 ## For AI agents
 

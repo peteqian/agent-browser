@@ -28,9 +28,11 @@
   },
   "files": [
     "dist",
+    "package.json",
     "README.md",
     "AGENTS.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "type": "module",
   "main": "./dist/src/index.js",
@@ -53,7 +55,8 @@
     "cli": "node ./dist/bin/cli.js",
     "mcp": "node ./dist/bin/mcp.js",
     "dev:cli": "bun run ./bin/cli.ts",
-    "dev:mcp": "bun run ./bin/mcp.ts"
+    "dev:mcp": "bun run ./bin/mcp.ts",
+    "example:mcp": "bun run examples/mcp.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
