@@ -1,0 +1,72 @@
+{
+  "name": "@peteqian/browser-agent",
+  "version": "0.1.0",
+  "description": "CLI and MCP server for @peteqian/browser-agent-sdk.",
+  "keywords": [
+    "agent",
+    "automation",
+    "browser",
+    "cdp",
+    "chrome-devtools",
+    "cli",
+    "llm",
+    "mcp"
+  ],
+  "homepage": "https://github.com/peteqian/agent-browser#readme",
+  "bugs": {
+    "url": "https://github.com/peteqian/agent-browser/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peteqian/agent-browser.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "browser-agent": "./dist/bin/cli.js",
+    "browser-agent-mcp": "./dist/bin/mcp.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md"
+  ],
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts bin/cli.ts bin/mcp.ts --format esm --dts --out-dir dist --clean --sourcemap",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
+    "lint": "oxlint --report-unused-disable-directives",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check --ignore-path .gitignore",
+    "test": "bun test",
+    "cli": "node ./dist/bin/cli.js",
+    "mcp": "node ./dist/bin/mcp.js",
+    "dev:cli": "bun run ./bin/cli.ts",
+    "dev:mcp": "bun run ./bin/mcp.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@peteqian/browser-agent-sdk": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.50.0",
+    "oxlint": "^1.65.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
