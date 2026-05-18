@@ -26,12 +26,6 @@
         "@peteqian/browser-agent-sdk": "workspace:*",
         "zod": "^3.25.76",
       },
-      "devDependencies": {
-        "oxfmt": "^0.50.0",
-        "oxlint": "^1.65.0",
-        "tsup": "^8.5.1",
-        "typescript": "^5.9.3",
-      },
     },
     "packages/sdk": {
       "name": "@peteqian/browser-agent-sdk",
@@ -47,11 +41,7 @@
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",
-        "oxfmt": "^0.50.0",
-        "oxlint": "^1.65.0",
-        "tsup": "^8.5.1",
         "typedoc": "^0.28.19",
-        "typescript": "^5.9.3",
       },
     },
   },

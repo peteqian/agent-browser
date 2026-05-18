@@ -4,7 +4,7 @@
 
 ### Breaking
 
-- **Package renamed: `@peteqian/browser-agent` → `@peteqian/browser-agent-sdk`.** The library core (Page, BrowserSession, Agent, runAgent, actions, internal subpath) now ships under the `-sdk` name. The unsuffixed `@peteqian/browser-agent` package becomes the runtime shell (CLI + MCP server, future HTTP API).
+- **This package is now `@peteqian/browser-agent-sdk`.** The library core (Page, BrowserSession, Agent, runAgent, actions, internal subpath) ships under the `-sdk` name. The unsuffixed `@peteqian/browser-agent` is **not deprecated** — it is now a separate runtime package (CLI + MCP server, future HTTP API) that depends on this SDK. Library consumers move to `@peteqian/browser-agent-sdk`; CLI/MCP users still install `@peteqian/browser-agent`.
 - CLI binary `browser-agent` and MCP server `browser-agent-mcp` moved out of this package into `@peteqian/browser-agent`. The `bin/` entries and `src/mcp/` directory no longer live here.
 - `createMcpServer` / `runStdioServer` root re-exports removed. They now live in `@peteqian/browser-agent`.
 - Removed `@modelcontextprotocol/sdk` from dependencies — runtime-only concern.

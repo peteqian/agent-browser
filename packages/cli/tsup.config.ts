@@ -2,7 +2,11 @@ import { defineConfig } from "tsup";
 import pkg from "./package.json" with { type: "json" };
 
 export default defineConfig({
-  entry: ["src/index.ts", "bin/cli.ts", "bin/mcp.ts"],
+  entry: {
+    index: "src/index.ts",
+    "bin/cli": "bin/cli.ts",
+    "bin/mcp": "bin/mcp.ts",
+  },
   format: ["esm"],
   dts: true,
   outDir: "dist",

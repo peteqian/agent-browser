@@ -79,11 +79,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "oxfmt": "^0.50.0",
-    "oxlint": "^1.65.0",
-    "tsup": "^8.5.1",
-    "typedoc": "^0.28.19",
-    "typescript": "^5.9.3"
+    "typedoc": "^0.28.19"
   },
   "engines": {
     "node": ">=18"

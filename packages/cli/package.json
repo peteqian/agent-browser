@@ -1,7 +1,7 @@
 {
   "name": "@peteqian/browser-agent",
   "version": "0.1.0",
-  "description": "CLI and MCP server for @peteqian/browser-agent-sdk.",
+  "description": "CLI binary and MCP server. Library core ships in @peteqian/browser-agent-sdk.",
   "keywords": [
     "agent",
     "automation",
@@ -35,12 +35,12 @@
     "LICENSE"
   ],
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
@@ -62,12 +62,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@peteqian/browser-agent-sdk": "workspace:*",
     "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "oxfmt": "^0.50.0",
-    "oxlint": "^1.65.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18"
