@@ -1,6 +1,6 @@
 {
   "name": "@peteqian/browser-agent",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "TypeScript browser automation agent. Raw CDP + LLM loop.",
   "keywords": [
     "agent",
@@ -12,6 +12,14 @@
     "mcp"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peteqian/agent-browser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/peteqian/agent-browser/issues"
+  },
+  "homepage": "https://github.com/peteqian/agent-browser#readme",
   "bin": {
     "browser-agent": "./dist/bin/cli.js",
     "browser-agent-mcp": "./dist/bin/mcp.js"
