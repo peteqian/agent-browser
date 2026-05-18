@@ -44,7 +44,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts bin/cli.ts bin/mcp.ts --format esm --dts --out-dir dist --clean --sourcemap",
+    "build": "tsup",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "lint": "oxlint --report-unused-disable-directives",
