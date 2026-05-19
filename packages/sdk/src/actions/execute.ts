@@ -16,6 +16,8 @@ import {
 } from "./handlers/navigation";
 import {
   handleClick,
+  handleDblclick,
+  handleHover,
   handleScroll,
   handleClickBy,
   handleSelectBy,
@@ -29,6 +31,7 @@ import {
 } from "./handlers/interaction";
 import {
   handleDone,
+  handleEval,
   handleExtractContent,
   handleFindElements,
   handleFindText,
@@ -38,6 +41,10 @@ import {
   handleScreenshot,
   handleSearchPage,
 } from "./handlers/extraction";
+import { handleFindByRole, handleFindByText, handleFindByTestid } from "./handlers/find";
+import { handleDialogHandle } from "./handlers/dialog";
+import { handleNetworkHarStart, handleNetworkHarStop } from "./handlers/network";
+import { handleProfilerStart, handleProfilerStop } from "./handlers/profiler";
 import type { FocusState } from "../agent/focus-state";
 import type { ElementInfo } from "../dom/types";
 
@@ -135,6 +142,28 @@ export async function executeAction(
         return await handleTypeBy(ctx, action);
       case "select_by":
         return await handleSelectBy(ctx, action);
+      case "hover":
+        return await handleHover(ctx, action);
+      case "dblclick":
+        return await handleDblclick(ctx, action);
+      case "eval":
+        return await handleEval(ctx, action);
+      case "find_by_role":
+        return handleFindByRole(ctx, action);
+      case "find_by_text":
+        return handleFindByText(ctx, action);
+      case "find_by_testid":
+        return handleFindByTestid(ctx, action);
+      case "dialog_handle":
+        return await handleDialogHandle(ctx, action);
+      case "network_har_start":
+        return await handleNetworkHarStart(ctx, action);
+      case "network_har_stop":
+        return await handleNetworkHarStop(ctx, action);
+      case "profiler_start":
+        return await handleProfilerStart(ctx, action);
+      case "profiler_stop":
+        return await handleProfilerStop(ctx, action);
       case "done":
         return handleDone(ctx, action);
       default: {

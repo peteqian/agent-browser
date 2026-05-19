@@ -1,4 +1,5 @@
 import { BrowserSession, type Page } from "../browser/session";
+import type { PageSnapshot } from "../dom/types";
 import type { AgentInput, AgentOptions, AgentOutput, AgentResult } from "./contracts";
 import { emitEvent } from "./emit";
 import { compactHistory } from "./history";
@@ -22,7 +23,12 @@ import { combineSignals, withDecideTimeout, withRejectingTimeout } from "./timeo
 
 export { AgentController } from "./controller";
 export { compactHistory } from "./history";
-export { buildDecisionPrompt, buildDecisionUserPrompt } from "./decision-prompt";
+export {
+  buildDecisionPrompt,
+  buildDecisionPromptParts,
+  buildDecisionUserPrompt,
+} from "./decision-prompt";
+export type { DecisionPromptParts } from "./decision-prompt";
 
 /**
  * Runs the core browser-agent loop until completion, abort, or step-budget
@@ -66,6 +72,8 @@ async function runAgentInner<TData = unknown>(
   let pendingLoopNotice: string | null = null;
   let latestExtraction: string | null = null;
   let currentMemory: string | undefined = options.memory;
+  let prevSnapshot: PageSnapshot | null = null;
+  const fullSnapshots = options.fullSnapshots === true;
 
   try {
     const initialPage = options.page ?? (session ? await session.newPage() : undefined);
@@ -95,10 +103,19 @@ async function runAgentInner<TData = unknown>(
       const beforeStepInterrupt = await checkInterrupt(options, step - 1);
       if (beforeStepInterrupt) return beforeStepInterrupt;
 
+      await emitEvent(options, { type: "snapshot_started", stepIndex: step });
+      const snapshotStartedAt = Date.now();
       let context: StepContext;
       try {
         context = await withRejectingTimeout(
-          buildStepContext(page, session, cfg.vision, options.domBudgets, focusState),
+          buildStepContext(
+            page,
+            session,
+            cfg.vision,
+            options.domBudgets,
+            focusState,
+            fullSnapshots ? null : prevSnapshot,
+          ),
           cfg.stepTimeoutMs,
           `Step context preparation timed out after ${cfg.stepTimeoutMs}ms`,
         );
@@ -113,6 +130,17 @@ async function runAgentInner<TData = unknown>(
       }
 
       const { browserState, observation, tabs } = context;
+      prevSnapshot = browserState.snapshot;
+      const snapshotDurationMs = Date.now() - snapshotStartedAt;
+      const snapshotBytes = observation.length;
+      const snapshotElementCount = browserState.elements?.length ?? 0;
+      await emitEvent(options, {
+        type: "snapshot_captured",
+        stepIndex: step,
+        durationMs: snapshotDurationMs,
+        elementCount: snapshotElementCount,
+        bytes: snapshotBytes,
+      });
       await session?.eventBus?.emit({ type: "browser_state", state: browserState });
       await emitEvent(options, { type: "browser_state", step, state: browserState });
       if (browserState.screenshot) {
@@ -154,6 +182,14 @@ async function runAgentInner<TData = unknown>(
         memory: currentMemory,
       };
 
+      const provider = options.transportResolution?.provider ?? "unknown";
+      const decisionStartedAt = Date.now();
+      await emitEvent(options, {
+        type: "decision_started",
+        stepIndex: step,
+        provider,
+        model: "",
+      });
       let decision: AgentOutput;
       try {
         decision = await runDecide(options, decideInput, cfg.decisionTimeoutMs);
@@ -169,6 +205,16 @@ async function runAgentInner<TData = unknown>(
           steps: step,
         };
       }
+
+      await emitEvent(options, {
+        type: "decision_completed",
+        stepIndex: step,
+        durationMs: Date.now() - decisionStartedAt,
+        tokensIn: decision.telemetry?.usage?.inputTokens,
+        tokensOut: decision.telemetry?.usage?.outputTokens,
+        cacheReadTokens: decision.telemetry?.usage?.cachedInputTokens,
+        cacheCreationTokens: decision.telemetry?.usage?.cacheCreationTokens,
+      });
 
       if (typeof decision.memory === "string") currentMemory = decision.memory;
       if (cfg.planning && (decision.plan || decision.memory || decision.nextGoal)) {

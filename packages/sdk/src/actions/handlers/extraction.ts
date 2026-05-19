@@ -154,11 +154,22 @@ export async function handleScreenshot(
   ctx: HandlerContext,
   action: ByName<"screenshot">,
 ): Promise<ActionResult> {
+  const annotate = action.params.annotate === true;
+  const snapshot =
+    annotate && ctx.snapshotElements
+      ? {
+          url: ctx.currentUrl ?? "",
+          title: "",
+          elements: [...ctx.snapshotElements],
+          stability: { readyState: "complete", pendingRequestCount: 0 },
+        }
+      : undefined;
+  const opts = annotate && snapshot ? { annotate: true, snapshot } : undefined;
   if (action.params.fileName) {
-    const savedPath = await ctx.page.screenshotToFile(action.params.fileName);
+    const savedPath = await ctx.page.screenshotToFile(action.params.fileName, opts);
     return ok(`Screenshot saved to ${savedPath}`, { data: { path: savedPath } });
   }
-  const base64 = await ctx.page.screenshot();
+  const base64 = await ctx.page.screenshot(opts);
   return ok("Captured screenshot (base64 PNG)", {
     longTermMemory: "Captured screenshot",
     data: { base64 },
@@ -364,6 +375,28 @@ export function handleFocusArea(ctx: HandlerContext, action: ByName<"focus_area"
   return ok(
     `Focus set to bbox(${Math.round(pick.bbox.x)},${Math.round(pick.bbox.y)},${Math.round(pick.bbox.w)}×${Math.round(pick.bbox.h)}) matching "${action.params.query}". ${pick.matchCount} elements inside; next observation will be filtered to this region.`,
   );
+}
+
+export async function handleEval(
+  ctx: HandlerContext,
+  action: ByName<"eval">,
+): Promise<ActionResult> {
+  try {
+    const value = await ctx.page.evaluate<unknown>(action.params.expression);
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value);
+    } catch {
+      serialized = String(value);
+    }
+    return ok(`eval result: ${serialized?.slice(0, 4000) ?? "undefined"}`, {
+      longTermMemory: "Evaluated JS expression",
+      data: { value: serialized },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return fail(`eval failed: ${message}`);
+  }
 }
 
 export function handleDone(_ctx: HandlerContext, action: ByName<"done">): ActionResult {

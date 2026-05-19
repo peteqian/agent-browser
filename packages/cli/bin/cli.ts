@@ -14,13 +14,18 @@ import {
   type TransportId,
 } from "@peteqian/browser-agent-sdk";
 
+import { runSkillsCommand } from "../src/commands/skills";
 import { runInstall, type InstallOptions } from "../src/install";
+import { runStateCommand } from "../src/commands/state";
+import { SummaryCollector, renderSummary } from "../src/commands/summary";
 import type { ClientId } from "../src/install/detect";
 import type { SourceId } from "../src/install/snippet";
 
 const PROVIDERS: readonly ProviderId[] = ["codex", "claude", "openai", "anthropic"];
 const TRANSPORTS: readonly (TransportId | "auto")[] = ["auto", "sdk-agent", "sdk-api", "cli"];
 const ENVS: readonly (EnvId | "auto")[] = ["auto", "local", "cloud"];
+const ENGINES = ["chrome", "lightpanda"] as const;
+type EngineId = (typeof ENGINES)[number];
 
 interface CliOptions {
   task: string;
@@ -42,6 +47,9 @@ interface CliOptions {
   env?: EnvId | "auto";
   outputFile?: string;
   probe: boolean;
+  engine: EngineId;
+  summary: boolean;
+  fullSnapshots: boolean;
 }
 
 function printHelp(): void {
@@ -50,6 +58,7 @@ function printHelp(): void {
 Usage:
   browser-agent "<task>" [flags]
   browser-agent install [--help]              # configure MCP clients
+  browser-agent state <subcommand> [--help]   # manage saved-state vault
   browser-agent --stdin                       # read task from stdin
   browser-agent --probe --provider <p>        # show what transport would resolve
   browser-agent --version                     # print version
@@ -60,6 +69,7 @@ Flags:
   --max-steps <n>            Hard cap on loop iterations (default 40).
   --no-headless              Show the browser window.
   --headless                 Run headless (default).
+  --engine <e>               ${ENGINES.join(" | ")}  (default: chrome)
 
 Provider:
   --provider <p>             ${PROVIDERS.join(" | ")}  (default: codex)
@@ -83,6 +93,9 @@ Output:
   --output-file <path>       Write final result JSON to file (still printed on stdout).
   --verbose, -v              Print every AgentEvent and step trace as
                              timestamped JSONL on stderr. Composes with --json.
+  --summary                  After the run, print a per-step timing table to stdout
+                             (decision / snapshot / action breakdown).
+  --full-snapshots           Always send the full DOM snapshot instead of a per-step diff.
 
 Other:
   --config <path>            Load defaults from JSON file (CLI flags override).
@@ -123,6 +136,7 @@ interface ConfigFile {
   transport?: TransportId | "auto";
   env?: EnvId | "auto";
   outputFile?: string;
+  engine?: EngineId;
 }
 
 function loadConfig(path: string): ConfigFile {
@@ -182,9 +196,12 @@ async function buildOptions(argv: string[]): Promise<CliOptions> {
       "action-timeout": { type: "string" },
       "max-failures": { type: "string" },
       "output-file": { type: "string" },
+      engine: { type: "string" },
       config: { type: "string" },
       stdin: { type: "boolean" },
       json: { type: "boolean" },
+      summary: { type: "boolean" },
+      "full-snapshots": { type: "boolean" },
       probe: { type: "boolean" },
       verbose: { type: "boolean", short: "v" },
       version: { type: "boolean", short: "V" },
@@ -212,6 +229,9 @@ async function buildOptions(argv: string[]): Promise<CliOptions> {
     ? parseEnum(values.transport as string, TRANSPORTS, "--transport")
     : config.transport;
   const env = values.env ? parseEnum(values.env as string, ENVS, "--env") : config.env;
+  const engine: EngineId = values.engine
+    ? parseEnum<EngineId>(values.engine as string, ENGINES, "--engine")
+    : (config.engine ?? "chrome");
 
   const headless = values["no-headless"]
     ? false
@@ -266,6 +286,9 @@ async function buildOptions(argv: string[]): Promise<CliOptions> {
     env,
     outputFile: (values["output-file"] as string | undefined) ?? config.outputFile,
     probe: Boolean(values.probe),
+    engine,
+    summary: Boolean(values.summary),
+    fullSnapshots: Boolean(values["full-snapshots"]),
   };
 }
 
@@ -358,6 +381,12 @@ async function main(): Promise<number> {
   if (argv[0] === "install") {
     return runInstallCommand(argv.slice(1));
   }
+  if (argv[0] === "skills") {
+    return runSkillsCommand(argv.slice(1));
+  }
+  if (argv[0] === "state") {
+    return runStateCommand(argv.slice(1));
+  }
   const opts = await buildOptions(argv);
 
   if (opts.probe) {
@@ -389,13 +418,21 @@ async function main(): Promise<number> {
   const verboseOnEvent = opts.verbose
     ? (event: AgentEvent) => writeVerbose(`event.${event.type}`, event)
     : undefined;
+  const summaryCollector = opts.summary ? new SummaryCollector() : undefined;
+  const summaryOnEvent: ((event: AgentEvent) => void) | undefined = summaryCollector
+    ? (event) => summaryCollector.observe(event)
+    : undefined;
+  const handlers = [jsonlOnEvent, verboseOnEvent, summaryOnEvent].filter(
+    (h): h is (event: AgentEvent) => void => Boolean(h),
+  );
   const onEvent: ((event: AgentEvent) => void) | undefined =
-    jsonlOnEvent && verboseOnEvent
-      ? (event) => {
-          verboseOnEvent(event);
-          jsonlOnEvent(event);
-        }
-      : (jsonlOnEvent ?? verboseOnEvent);
+    handlers.length === 0
+      ? undefined
+      : handlers.length === 1
+        ? handlers[0]
+        : (event) => {
+            for (const h of handlers) h(event);
+          };
 
   const abortController = new AbortController();
   let signalCount = 0;
@@ -424,10 +461,14 @@ async function main(): Promise<number> {
     stepTimeoutMs: opts.stepTimeoutMs,
     actionTimeoutMs: opts.actionTimeoutMs,
     maxFailures: opts.maxFailures,
-    launch: { headless: opts.headless },
+    launch: {
+      headless: opts.headless,
+      ...(opts.engine === "lightpanda" ? { channel: "lightpanda" as const } : {}),
+    },
     decide,
     transportResolution: resolution,
     vision: "auto" as const,
+    fullSnapshots: opts.fullSnapshots,
     signal: abortController.signal,
     onEvent,
     onStep: (step: StepInfo) => {
@@ -458,6 +499,9 @@ async function main(): Promise<number> {
   }
   if (!opts.json) {
     console.log(resultJson);
+  }
+  if (summaryCollector) {
+    console.log(renderSummary(summaryCollector.snapshot()));
   }
   return result.success ? 0 : 1;
 }

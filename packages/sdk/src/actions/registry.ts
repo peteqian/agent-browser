@@ -183,6 +183,28 @@ function defaultActionDescription(name: ActionName): string {
       return "Type text into an input matched by semantic locator (same shape as click_by). PREFERRED over `type [index]`.";
     case "select_by":
       return "Choose a dropdown option on a select matched by semantic locator. PREFERRED over `select_option [index]`.";
+    case "hover":
+      return "Move the mouse over element [index].";
+    case "dblclick":
+      return "Double-click element [index].";
+    case "eval":
+      return "Evaluate a JavaScript expression in the page and return the JSON-serialized result.";
+    case "find_by_role":
+      return "Return indices of snapshot elements matching ARIA role (and optional accessible name).";
+    case "find_by_text":
+      return "Return indices of snapshot elements whose visible/accessible text contains the substring.";
+    case "find_by_testid":
+      return "Return indices of snapshot elements with a matching data-testid.";
+    case "dialog_handle":
+      return "Accept or dismiss a JavaScript dialog (alert/confirm/prompt/beforeunload).";
+    case "network_har_start":
+      return "Start recording network requests on the current page.";
+    case "network_har_stop":
+      return "Stop recording and return collected HAR-like JSON (or write to file).";
+    case "profiler_start":
+      return "Start a CDP performance trace on the current page. Pair with profiler_stop to capture a Chrome trace JSON.";
+    case "profiler_stop":
+      return "Stop the active CDP performance trace and return (or write) Chrome Trace Event JSON.";
     case "done":
       return "End the task with success/failure and optional data.";
     default: {

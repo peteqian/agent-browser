@@ -10,7 +10,7 @@ import {
   installChromiumWithPlaywright,
   type BrowserChannel,
 } from "./discovery";
-import { buildChromeArgs } from "./chrome-args";
+import { buildChromeArgs, buildLightpandaArgs } from "./chrome-args";
 
 export interface LaunchOptions {
   executablePath?: string;
@@ -42,7 +42,8 @@ export interface LaunchedBrowser {
   webSocketDebuggerUrl: string;
   debuggerAddress: string;
   executablePath: string;
-  userDataDir: string;
+  /** Path on disk for the launched profile. `undefined` when the engine does not use one (e.g. Lightpanda). */
+  userDataDir?: string;
   ownsUserDataDir: boolean;
   close: () => Promise<void>;
   kill: () => Promise<void>;
@@ -170,6 +171,10 @@ async function resolveExecutable(
   const found = discoverBrowserExecutable(channel);
   if (found) return found;
 
+  if (channel === "lightpanda") {
+    throw new Error("Lightpanda binary not found. Install from https://lightpanda.io");
+  }
+
   if (!autoInstallBrowser) {
     throw new Error(
       `Could not find browser executable for channel=${channel}. Set executablePath or BROWSER_AGENT_CHROME.`,
@@ -193,6 +198,7 @@ async function launchAttempt(
       "headless" | "docker" | "disableSecurity" | "extraArgs" | "maxRetries" | "autoInstallBrowser"
     >
   > & {
+    channel: BrowserChannel;
     userDataDir?: string;
     proxyServer?: string;
     proxyBypass?: string;
@@ -204,24 +210,27 @@ async function launchAttempt(
     port?: number;
   },
 ): Promise<LaunchedBrowser> {
-  const ownsUserDataDir = !profile.userDataDir;
-  const userDataDir = profile.userDataDir ?? createTempProfileDir();
+  const isLightpanda = profile.channel === "lightpanda";
+  const ownsUserDataDir = !isLightpanda && !profile.userDataDir;
+  const userDataDir = isLightpanda ? undefined : (profile.userDataDir ?? createTempProfileDir());
   const port = profile.port ?? (await findFreePort());
   const debuggerAddress = `127.0.0.1:${port}`;
 
-  const args = buildChromeArgs({
-    remoteDebuggingPort: port,
-    userDataDir,
-    headless: profile.headless,
-    docker: profile.docker,
-    disableSecurity: profile.disableSecurity,
-    proxyServer: profile.proxyServer,
-    proxyBypass: profile.proxyBypass,
-    userAgent: profile.userAgent,
-    acceptLanguage: profile.acceptLanguage,
-    extensionPaths: profile.extensionPaths,
-    extra: profile.extraArgs,
-  });
+  const args = isLightpanda
+    ? buildLightpandaArgs(port)
+    : buildChromeArgs({
+        remoteDebuggingPort: port,
+        userDataDir: userDataDir as string,
+        headless: profile.headless,
+        docker: profile.docker,
+        disableSecurity: profile.disableSecurity,
+        proxyServer: profile.proxyServer,
+        proxyBypass: profile.proxyBypass,
+        userAgent: profile.userAgent,
+        acceptLanguage: profile.acceptLanguage,
+        extensionPaths: profile.extensionPaths,
+        extra: profile.extraArgs,
+      });
 
   const child = spawn(executablePath, args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -238,7 +247,7 @@ async function launchAttempt(
     ownsUserDataDir,
     close: async () => {
       await terminateChild(child);
-      if (ownsUserDataDir) {
+      if (ownsUserDataDir && userDataDir) {
         rmSync(userDataDir, { recursive: true, force: true });
       }
     },
@@ -246,7 +255,7 @@ async function launchAttempt(
       if (child.exitCode === null) {
         child.kill("SIGKILL");
       }
-      if (ownsUserDataDir) {
+      if (ownsUserDataDir && userDataDir) {
         rmSync(userDataDir, { recursive: true, force: true });
       }
     },
@@ -269,6 +278,7 @@ export async function launchBrowser(options: LaunchOptions = {}): Promise<Launch
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const launched = await launchAttempt(executablePath, {
+        channel,
         headless: attemptOptions.headless ?? true,
         docker: attemptOptions.docker ?? false,
         disableSecurity: attemptOptions.disableSecurity ?? false,

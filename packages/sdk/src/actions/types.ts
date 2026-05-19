@@ -125,6 +125,7 @@ export const findTextAction = z.object({
 
 export const screenshotAction = z.object({
   fileName: z.string().min(1).optional(),
+  annotate: z.boolean().optional(),
 });
 
 export const saveAsPdfAction = z.object({
@@ -231,6 +232,55 @@ export const focusAreaAction = z.object({
   clear: z.boolean().optional(),
 });
 
+export const hoverAction = z.object({
+  index: z.number().int().nonnegative(),
+});
+
+export const dblclickAction = z.object({
+  index: z.number().int().nonnegative(),
+});
+
+export const evalAction = z.object({
+  expression: z.string().min(1).max(20_000),
+  awaitPromise: z.boolean().optional(),
+});
+
+export const findByRoleAction = z.object({
+  role: z.string().min(1).max(40),
+  name: z.string().min(1).max(200).optional(),
+  /** When true, matches a substring of the accessible name. Default false (exact match, case-insensitive). */
+  partial: z.boolean().optional(),
+});
+
+export const findByTextAction = z.object({
+  text: z.string().min(2).max(200),
+  /** When true, matches a substring. Default false (exact match, case-insensitive). */
+  partial: z.boolean().optional(),
+});
+
+export const findByTestidAction = z.object({
+  testid: z.string().min(1).max(120),
+});
+
+export const dialogHandleAction = z.object({
+  accept: z.boolean(),
+  promptText: z.string().optional(),
+});
+
+export const profilerStartAction = z.object({
+  categories: z.array(z.string().min(1)).max(64).optional(),
+});
+
+export const profilerStopAction = z.object({
+  fileName: z.string().min(1).optional(),
+});
+
+export const networkHarStartAction = z.object({});
+
+export const networkHarStopAction = z.object({
+  fileName: z.string().min(1).optional(),
+});
+
 export const doneAction = z.object({
   success: z.boolean(),
   summary: z.string(),
@@ -265,6 +315,17 @@ export const actionSchemas = {
   click_by: clickByAction,
   type_by: typeByAction,
   select_by: selectByAction,
+  hover: hoverAction,
+  dblclick: dblclickAction,
+  eval: evalAction,
+  find_by_role: findByRoleAction,
+  find_by_text: findByTextAction,
+  find_by_testid: findByTestidAction,
+  dialog_handle: dialogHandleAction,
+  network_har_start: networkHarStartAction,
+  network_har_stop: networkHarStopAction,
+  profiler_start: profilerStartAction,
+  profiler_stop: profilerStopAction,
   done: doneAction,
 } as const;
 
@@ -298,4 +359,15 @@ export type Action =
   | { name: "click_by"; params: z.infer<typeof clickByAction> }
   | { name: "type_by"; params: z.infer<typeof typeByAction> }
   | { name: "select_by"; params: z.infer<typeof selectByAction> }
+  | { name: "hover"; params: z.infer<typeof hoverAction> }
+  | { name: "dblclick"; params: z.infer<typeof dblclickAction> }
+  | { name: "eval"; params: z.infer<typeof evalAction> }
+  | { name: "find_by_role"; params: z.infer<typeof findByRoleAction> }
+  | { name: "find_by_text"; params: z.infer<typeof findByTextAction> }
+  | { name: "find_by_testid"; params: z.infer<typeof findByTestidAction> }
+  | { name: "dialog_handle"; params: z.infer<typeof dialogHandleAction> }
+  | { name: "network_har_start"; params: z.infer<typeof networkHarStartAction> }
+  | { name: "network_har_stop"; params: z.infer<typeof networkHarStopAction> }
+  | { name: "profiler_start"; params: z.infer<typeof profilerStartAction> }
+  | { name: "profiler_stop"; params: z.infer<typeof profilerStopAction> }
   | { name: "done"; params: z.infer<typeof doneAction> };
