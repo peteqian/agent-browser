@@ -28,13 +28,19 @@ function assertNoWorkspaceProtocol(dir, pkg) {
   }
 }
 
+// `bun publish` in CI doesn't reliably pick up auth from setup-node's
+// project-level .npmrc or from $HOME/.npmrc when NPM_CONFIG_USERCONFIG is
+// set elsewhere. Pass the token directly via --token when available.
+const token = process.env.NPM_TOKEN ?? process.env.NODE_AUTH_TOKEN ?? "";
+const tokenFlag = token ? `--token ${token}` : "";
+
 for (const dir of pkgs) {
   const pkg = JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8"));
   if (pkg.private) continue;
   console.log(`verifying pack for ${pkg.name}@${pkg.version}...`);
   assertNoWorkspaceProtocol(dir, pkg);
   console.log(`publishing ${pkg.name}@${pkg.version} from ${dir}`);
-  execSync(`bun publish --access public ${extraArgs.join(" ")}`.trim(), {
+  execSync(`bun publish --access public ${tokenFlag} ${extraArgs.join(" ")}`.trim(), {
     cwd: dir,
     stdio: "inherit",
   });
